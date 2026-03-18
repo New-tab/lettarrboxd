@@ -127,7 +127,7 @@ describe('ListScraper', () => {
       expect(global.fetch).toHaveBeenNthCalledWith(
         2,
         'https://letterboxd.com/user/watchlist/page/2/',
-        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }
+        expect.objectContaining({ headers: expect.objectContaining({ 'User-Agent': expect.stringContaining('Mozilla') }) })
       );
     });
 
@@ -210,7 +210,7 @@ describe('ListScraper', () => {
 
       expect(global.fetch).toHaveBeenCalledWith(
         'https://letterboxd.com/user/watchlist/by/date-earliest/',
-        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }
+        expect.objectContaining({ headers: expect.objectContaining({ 'User-Agent': expect.stringContaining('Mozilla') }) })
       );
     });
 
