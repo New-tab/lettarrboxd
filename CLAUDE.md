@@ -1,113 +1,101 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file describes the current code shape in this repository. If docs disagree with the code, trust the code.
 
 ## Project Overview
 
-Lettarrboxd is a TypeScript Node.js application that automatically syncs Letterboxd watchlist movies to Radarr. It continuously monitors a user's Letterboxd watchlist for new additions and automatically adds them to Radarr for download management.
+Lettarrboxd monitors a single Letterboxd source on a schedule and syncs it into a Seerr-centered movie workflow.
+
+The active runtime has two modes:
+
+- Request mode: request-mode Letterboxd sources create Seerr movie requests.
+- Delete mode: watched/diary sources delete from Radarr first, then delete the matching Seerr request.
 
 ## Commands
 
 ### Development
-- `yarn install` - Install dependencies
-- `yarn start` - Run the application using ts-node
-- `yarn start:dev` - Run with auto-reload during development using nodemon
-- `yarn build` - Compile TypeScript to JavaScript
-- `yarn tsc --noEmit` - Type check without emitting files
 
-### Docker
-- `docker build -t lettarrboxd .` - Build Docker image
-- `docker run -d --env-file .env -v ./data:/data lettarrboxd` - Run container
+- `yarn start` - Run the compiled application
+- `yarn start:dev` - Run with `nodemon`
+- `yarn build` - Compile TypeScript
+- `yarn test:unit` - Run unit tests
+- `yarn test:integration` - Run integration tests
+- `yarn test` - Run all tests
 
 ## Environment Configuration
 
-The application uses Zod for strict environment variable validation in `src/env.ts`. All environment variables are validated at startup and the application will exit with detailed error messages if validation fails.
+Environment variables are validated with Zod in `src/util/env.ts`.
 
-Required variables:
-- `LETTERBOXD_URL` - Letterboxd list URL for scraping (supports watchlists, regular lists, watched movies, filmographies, collections, etc.)
-- `RADARR_API_URL` - Base URL of Radarr instance  
-- `RADARR_API_KEY` - Radarr API key
-- `RADARR_QUALITY_PROFILE` - Quality profile name (case-sensitive)
+Always required:
 
-Key validation rules:
-- `CHECK_INTERVAL_MINUTES` enforces minimum 10 minutes
-- Environment variables are transformed and validated using Zod schemas
-- The app exits early with clear error messages for invalid configuration
+- `LETTERBOXD_URL`
+- `SEERR_API_URL`
+- `SEERR_API_KEY`
 
-## Architecture Overview
+Required only for watched/diary delete mode:
 
-### Core Application Flow
-The application follows a scheduled monitoring pattern:
-1. **Scheduler** (`startScheduledMonitoring`) runs `processWatchlist()` at configured intervals
-2. **Incremental Processing** - Only new movies (not in previous `movies.json`) are processed
-3. **Rate Limiting** - Built-in delays between API calls to respect external services
-4. **Persistent State** - Tracks processed movies in `DATA_DIR/movies.json` to avoid reprocessing
+- `RADARR_API_URL`
+- `RADARR_API_KEY`
 
-### Module Separation
-- **`src/index.ts`** - Main orchestration, scheduling, and file I/O operations
-- **`src/letterboxd.ts`** - Web scraping and TMDB ID extraction logic
-- **`src/radarr.ts`** - Radarr API integration and movie management
-- **`src/env.ts`** - Environment validation and configuration management
+Important defaults and rules:
 
-### Key Architectural Patterns
+- `CHECK_INTERVAL_MINUTES` defaults to `10` and must be at least `10`
+- `DATA_DIR` defaults to `/data`
+- `MEDIA_MOUNT_SENTINEL` defaults to `/mnt/media/.MOUNT_OK`
+- `DRY_RUN=true` performs no API mutations and does not persist state
+- `LETTERBOXD_TAKE_AMOUNT` and `LETTERBOXD_TAKE_STRATEGY` must be set together
 
-**State Management**: The application maintains state through a `movies.json` file containing:
-```typescript
-interface MoviesData {
-  timestamp: string;
-  queryDate: string; 
-  totalMovies: number;
-  movies: Movie[];
-}
-```
+## Runtime Architecture
 
-**Error Handling**: Each module handles errors gracefully without crashing the scheduler. Network failures and API errors are logged but don't stop the monitoring process.
+### Entrypoint
 
-**Development Mode**: When `NODE_ENV=development`, the application limits processing to the first 5 movies for faster testing cycles.
+- `src/index.ts`
+  - `startScheduledMonitoring()` runs immediately on startup and then on an interval
+  - mode is derived from `LETTERBOXD_URL`
+  - current state is loaded from `DATA_DIR/sync-state.json`
 
-**Radarr Integration**: Movies are added with:
-- Specified quality profile from environment
-- "letterboxd-watchlist" tag for organization
-- Automatic monitoring and search enabled
-- Configurable minimum availability settings
+### Scraping
 
-### Web Scraping Strategy
-Letterboxd scraping is implemented with:
-- **Multi-page support** - Automatically handles paginated watchlists
-- **TMDB ID extraction** - Visits individual movie pages to extract TMDB identifiers
-- **Rate limiting** - 1 second delays between page requests, 500ms between TMDB extractions
-- **Graceful pagination** - Detects end of pages using CSS selectors
+- `src/scraper/index.ts`
+  - detects supported Letterboxd URL types
+  - maps watched/diary sources to delete mode
+- `src/scraper/list.ts`
+  - paginates list-like Letterboxd pages and collects movie links
+- `src/scraper/movie.ts`
+  - fetches individual movie pages and extracts Letterboxd ID, TMDb ID, IMDb ID, and year
 
-### Function Organization
-The codebase is organized into small, focused functions:
-- `processWatchlist()` - High-level orchestration (19 lines)
-- `addMovieToRadarr(movie)` - Individual movie processing
-- `processNewMovies(movies)` - Batch processing with delays
-- `getAllWatchlistUrls()` - Pagination handling
-- `getTmdbIdFromMoviePage(url)` - TMDB ID extraction
+### External APIs
 
-## Development Notes
+- `src/api/seerr.ts`
+  - `createMovieRequest()` creates movie requests in Seerr
+  - `deleteMovieRequestByTmdbId()` finds and deletes matching Seerr requests
+- `src/api/radarr.ts`
+  - `findMovieByTmdbId()` resolves an existing Radarr movie
+  - `deleteMovieById()` deletes with `deleteFiles=true` and `addImportExclusion=false`
+  - legacy Radarr add helpers still exist in this module, but the active request flow does not call them
 
-### TypeScript Configuration
-- Strict mode enabled with comprehensive type checking
-- Uses ts-node for direct TypeScript execution
-- All environment variables are strictly typed through Zod inference
+### State
 
-### Docker Multi-Stage Build
-The Dockerfile uses a production-optimized approach:
-- Alpine Linux base for minimal size
-- Non-root user for security
-- Health checks included
-- Multi-architecture support (AMD64/ARM64)
+- `src/util/state.ts`
+  - persists `sync-state.json`
+  - state is per-instance and isolated by `DATA_DIR`
+  - supported statuses are:
+    - `pending`
+    - `cleanupPending`
+    - `acknowledged`
+    - `skipped`
 
-### Rate Limiting Implementation
-Built-in delays prevent overwhelming external services:
-- 1000ms between Letterboxd page requests
-- 1000ms between Radarr API calls  
-- 500ms between TMDB ID extractions
+### Delete-Mode Safety
 
-### Error Recovery
-The application is designed to handle transient failures:
-- Individual movie processing failures don't stop the batch
-- Network timeouts are caught and logged
-- Scheduler continues running even if individual checks fail
+- `src/util/mount.ts`
+  - `mountSentinelExists()` checks the sentinel path before destructive deletes
+- delete mode never mutates Radarr unless the sentinel exists
+- the first delete-mode run bootstraps historical watched/diary items without deleting them
+
+## Behavior Notes
+
+- Request mode acknowledges movies after successful Seerr creation or an "already exists" response.
+- Delete mode deletes from Radarr first, then cleans up Seerr.
+- If Radarr delete succeeds but Seerr cleanup fails, the item becomes `cleanupPending` and is retried from state later even if it disappears from the current Letterboxd source.
+- TMDb-missing items and Radarr-match misses use a bounded retry cap of 3 before becoming `skipped`.
+- Transient API failures remain retryable and do not increment the bounded retry counter.

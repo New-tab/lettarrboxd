@@ -2,6 +2,7 @@
 const mockAxiosInstance = {
   get: jest.fn(),
   post: jest.fn(),
+  delete: jest.fn(),
 };
 
 jest.mock('axios', () => {
@@ -40,6 +41,8 @@ import {
   getOrCreateTag,
   getAllRequiredTagIds,
   addMovie,
+  deleteMovieById,
+  findMovieByTmdbId,
   upsertMovies,
 } from './radarr';
 
@@ -272,14 +275,6 @@ describe('radarr API', () => {
       expect(mockAxiosInstance.post).not.toHaveBeenCalled();
     });
 
-    it('should handle dry run mode', async () => {
-      // For this test, we can't easily change the env at runtime since it's already loaded
-      // Instead, we'll verify the logic by checking the env mock
-      // This test is more of an integration test that would need env variable changes
-      // For unit testing, we skip this as DRY_RUN is set at module load time
-      expect(true).toBe(true);
-    });
-
     it('should handle movie already exists error', async () => {
       mockAxiosInstance.post.mockRejectedValueOnce({
         response: {
@@ -297,11 +292,58 @@ describe('radarr API', () => {
       await expect(addMovie(mockMovie, 2, '/movies', [1], 'released')).resolves.toBeUndefined();
     });
 
-    it('should set monitored to false when RADARR_ADD_UNMONITORED is true', async () => {
-      // For this test, we can't easily change the env at runtime since it's already loaded
-      // This test would need to be an integration test with actual env variable changes
-      // For unit testing, we skip this as RADARR_ADD_UNMONITORED is set at module load time
-      expect(true).toBe(true);
+  });
+
+  describe('findMovieByTmdbId', () => {
+    it('should return the matching Radarr movie', async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: [{ id: 2, title: 'Movie 2', tmdbId: 456 }],
+      });
+
+      const result = await findMovieByTmdbId('456');
+
+      expect(result).toEqual({ id: 2, title: 'Movie 2', tmdbId: 456 });
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/v3/movie', {
+        params: { tmdbId: 456 },
+      });
+    });
+
+    it('should return null when there is no TMDb match', async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: [],
+      });
+
+      const result = await findMovieByTmdbId('999');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('deleteMovieById', () => {
+    it('should delete with the required flags', async () => {
+      mockAxiosInstance.delete.mockResolvedValueOnce({});
+
+      const result = await deleteMovieById(42);
+
+      expect(result).toBe('deleted');
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/api/v3/movie/42', {
+        params: {
+          deleteFiles: true,
+          addImportExclusion: false,
+        },
+      });
+    });
+
+    it('should treat a 404 delete as already deleted', async () => {
+      mockAxiosInstance.delete.mockRejectedValueOnce({
+        response: {
+          status: 404,
+        },
+      });
+
+      const result = await deleteMovieById(42);
+
+      expect(result).toBe('alreadyDeleted');
     });
   });
 

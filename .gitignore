@@ -48,4 +48,5 @@ coverage/
 # Temporary folders
 tmp/
 temp/
-data/
+data/.claude/
+.claude/
