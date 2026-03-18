@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const DELETE_MODE_URL_PATTERN = /^https:\/\/letterboxd\.com\/[^\/]+\/films(\/diary)?\/?$/;
+const DELETE_MODE_URL_PATTERN = /^https:\/\/letterboxd\.com\/[^\/]+\/(films(\/diary)?|diary)\/?$/;
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

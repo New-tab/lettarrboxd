@@ -32,7 +32,7 @@ const URL_PATTERNS = {
   [ListType.WATCHLIST]: /^https:\/\/letterboxd\.com\/[^\/]+\/watchlist\/?$/,
   [ListType.REGULAR_LIST]: /^https:\/\/letterboxd\.com\/[^\/]+\/list\/[^\/]+\/?$/,
   [ListType.WATCHED_MOVIES]: /^https:\/\/letterboxd\.com\/[^\/]+\/films\/?$/,
-  [ListType.DIARY]: /^https:\/\/letterboxd\.com\/[^\/]+\/films\/diary\/?$/,
+  [ListType.DIARY]: /^https:\/\/letterboxd\.com\/[^\/]+\/(films\/)?diary\/?$/,
   [ListType.ACTOR_FILMOGRAPHY]: /^https:\/\/letterboxd\.com\/actor\/[^\/]+\/?$/,
   [ListType.DIRECTOR_FILMOGRAPHY]: /^https:\/\/letterboxd\.com\/director\/[^\/]+\/?$/,
   [ListType.WRITER_FILMOGRAPHY]: /^https:\/\/letterboxd\.com\/writer\/[^\/]+\/?$/,
