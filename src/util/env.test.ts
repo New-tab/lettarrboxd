@@ -67,7 +67,7 @@ describe('env', () => {
     expect(env.RADARR_API_URL).toBeUndefined();
     expect(env.RADARR_API_KEY).toBeUndefined();
     expect(env.DATA_DIR).toBe('/data');
-    expect(env.MEDIA_MOUNT_SENTINEL).toBeUndefined();
+    expect(env.MEDIA_MOUNT_SENTINEL).toBe('/mnt/media/.MOUNT_OK');
   });
 
   it('still requires take amount and strategy together', () => {

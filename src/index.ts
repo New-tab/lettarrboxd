@@ -273,14 +273,12 @@ async function runDeleteMode(
     return nextState;
   }
 
-  if (env.MEDIA_MOUNT_SENTINEL) {
-    const sentinelExists = await mountSentinelExists(env.MEDIA_MOUNT_SENTINEL);
-    if (!sentinelExists) {
-      logger.error(
-        `Mount safety failed: ${env.MEDIA_MOUNT_SENTINEL} does not exist. Skipping Radarr deletes and leaving items pending.`
-      );
-      return nextState;
-    }
+  const sentinelExists = await mountSentinelExists(env.MEDIA_MOUNT_SENTINEL);
+  if (!sentinelExists) {
+    logger.error(
+      `Mount safety failed: ${env.MEDIA_MOUNT_SENTINEL} does not exist. Skipping Radarr deletes and leaving items pending.`
+    );
+    return nextState;
   }
 
   for (const key of pendingDeleteKeys) {

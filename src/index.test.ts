@@ -270,7 +270,6 @@ describe('main application', () => {
   });
 
   it('leaves pending delete items unchanged when mount safety fails', async () => {
-    process.env.MEDIA_MOUNT_SENTINEL = '/mnt/media/.MOUNT_OK';
     setDeleteMode();
     loadModules();
 
