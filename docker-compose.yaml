@@ -1,70 +1,58 @@
 services:
-  # Single instance example - watches one list
-  lettarrboxd:
+  # Request-mode example: watchlist -> Seerr requests
+  lettarrboxd-watchlist:
     image: ryanpage/lettarrboxd:latest
-    container_name: lettarrboxd
+    container_name: lettarrboxd-watchlist
     environment:
-      # Required variables
       - LETTERBOXD_URL=https://letterboxd.com/your_username/watchlist/
-      - RADARR_API_URL=http://radarr:7878
-      - RADARR_API_KEY=your_api_key
-      - RADARR_QUALITY_PROFILE=HD-1080p
-
-      # Optional variables with defaults
+      - SEERR_API_URL=http://seerr:5055
+      - SEERR_API_KEY=your_seerr_api_key
       - NODE_ENV=production
       - LOG_LEVEL=info
       - CHECK_INTERVAL_MINUTES=60
-      - RADARR_MINIMUM_AVAILABILITY=released
-
-      # Optional root folder ID (if not specified, uses first available)
-      # - RADARR_ROOT_FOLDER_ID=1
-
+      - DATA_DIR=/data
+      - MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK
       # Optional movie limiting (both required if using)
       # - LETTERBOXD_TAKE_AMOUNT=10
       # - LETTERBOXD_TAKE_STRATEGY=newest
+    volumes:
+      - ./data/watchlist:/data
     restart: unless-stopped
 
-  # Multi-list example - deploy one instance per list
-  # Uncomment the services below to watch multiple lists simultaneously
-
-  # lettarrboxd-watchlist:
+  # Delete-mode example: watched/diary -> Radarr delete first, then Seerr cleanup
+  # lettarrboxd-watched:
   #   image: ryanpage/lettarrboxd:latest
-  #   container_name: lettarrboxd-watchlist
+  #   container_name: lettarrboxd-watched
   #   environment:
-  #     - LETTERBOXD_URL=https://letterboxd.com/your_username/watchlist/
+  #     - LETTERBOXD_URL=https://letterboxd.com/your_username/films/
+  #     - SEERR_API_URL=http://seerr:5055
+  #     - SEERR_API_KEY=your_seerr_api_key
   #     - RADARR_API_URL=http://radarr:7878
-  #     - RADARR_API_KEY=your_api_key
-  #     - RADARR_QUALITY_PROFILE=HD-1080p
-  #     - RADARR_TAGS=watchlist,personal
+  #     - RADARR_API_KEY=your_radarr_api_key
+  #     - NODE_ENV=production
+  #     - LOG_LEVEL=info
   #     - CHECK_INTERVAL_MINUTES=60
+  #     - DATA_DIR=/data
+  #     - MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK
   #   volumes:
-  #     - ./data/watchlist:/data
+  #     - ./data/watched:/data
   #   restart: unless-stopped
 
-  # lettarrboxd-criterion:
-  #   image: ryanpage/lettarrboxd:latest
-  #   container_name: lettarrboxd-criterion
-  #   environment:
-  #     - LETTERBOXD_URL=https://letterboxd.com/criterion/list/the-criterion-collection/
-  #     - RADARR_API_URL=http://radarr:7878
-  #     - RADARR_API_KEY=your_api_key
-  #     - RADARR_QUALITY_PROFILE=HD-1080p
-  #     - RADARR_TAGS=criterion,classics
-  #     - CHECK_INTERVAL_MINUTES=120
-  #   volumes:
-  #     - ./data/criterion:/data
-  #   restart: unless-stopped
+  # Run one instance per Letterboxd source and give each instance its own DATA_DIR.
+  # Uncomment and adapt additional services as needed.
 
-  # lettarrboxd-nolan:
+  # lettarrboxd-diary:
   #   image: ryanpage/lettarrboxd:latest
-  #   container_name: lettarrboxd-nolan
+  #   container_name: lettarrboxd-diary
   #   environment:
-  #     - LETTERBOXD_URL=https://letterboxd.com/director/christopher-nolan/
+  #     - LETTERBOXD_URL=https://letterboxd.com/your_username/films/diary/
+  #     - SEERR_API_URL=http://seerr:5055
+  #     - SEERR_API_KEY=your_seerr_api_key
   #     - RADARR_API_URL=http://radarr:7878
-  #     - RADARR_API_KEY=your_api_key
-  #     - RADARR_QUALITY_PROFILE=Ultra HD
-  #     - RADARR_TAGS=nolan,director-filmography
-  #     - CHECK_INTERVAL_MINUTES=1440  # Check once per day
+  #     - RADARR_API_KEY=your_radarr_api_key
+  #     - CHECK_INTERVAL_MINUTES=60
+  #     - DATA_DIR=/data
+  #     - MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK
   #   volumes:
-  #     - ./data/nolan:/data
+  #     - ./data/diary:/data
   #   restart: unless-stopped

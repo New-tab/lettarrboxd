@@ -16,6 +16,7 @@ export enum ListType {
   WATCHLIST = 'watchlist',
   REGULAR_LIST = 'regular_list',
   WATCHED_MOVIES = 'watched_movies',
+  DIARY = 'diary',
   ACTOR_FILMOGRAPHY = 'actor_filmography',
   DIRECTOR_FILMOGRAPHY = 'director_filmography',
   WRITER_FILMOGRAPHY = 'writer_filmography',
@@ -23,12 +24,15 @@ export enum ListType {
   POPULAR_MOVIES = 'popular_movies'
 }
 
+export type SyncMode = 'request' | 'delete';
+
 export const LETTERBOXD_BASE_URL = 'https://letterboxd.com';
 
 const URL_PATTERNS = {
   [ListType.WATCHLIST]: /^https:\/\/letterboxd\.com\/[^\/]+\/watchlist\/?$/,
   [ListType.REGULAR_LIST]: /^https:\/\/letterboxd\.com\/[^\/]+\/list\/[^\/]+\/?$/,
   [ListType.WATCHED_MOVIES]: /^https:\/\/letterboxd\.com\/[^\/]+\/films\/?$/,
+  [ListType.DIARY]: /^https:\/\/letterboxd\.com\/[^\/]+\/films\/diary\/?$/,
   [ListType.ACTOR_FILMOGRAPHY]: /^https:\/\/letterboxd\.com\/actor\/[^\/]+\/?$/,
   [ListType.DIRECTOR_FILMOGRAPHY]: /^https:\/\/letterboxd\.com\/director\/[^\/]+\/?$/,
   [ListType.WRITER_FILMOGRAPHY]: /^https:\/\/letterboxd\.com\/writer\/[^\/]+\/?$/,
@@ -45,6 +49,26 @@ export const detectListType = (url: string): ListType | null => {
   return null;
 };
 
+export const getSyncModeForListType = (listType: ListType): SyncMode => {
+  switch (listType) {
+    case ListType.WATCHED_MOVIES:
+    case ListType.DIARY:
+      return 'delete';
+    default:
+      return 'request';
+  }
+};
+
+export const getSyncModeForUrl = (url: string): SyncMode => {
+  const listType = detectListType(url);
+
+  if (!listType) {
+    throw new Error(`Unsupported URL format: ${url}`);
+  }
+
+  return getSyncModeForListType(listType);
+};
+
 export const fetchMoviesFromUrl = async (url: string): Promise<LetterboxdMovie[]> => {
   const listType = detectListType(url);
   
@@ -59,6 +83,7 @@ export const fetchMoviesFromUrl = async (url: string): Promise<LetterboxdMovie[]
     case ListType.WATCHLIST:
     case ListType.REGULAR_LIST:
     case ListType.WATCHED_MOVIES:
+    case ListType.DIARY:
       // Filmography pages, lists, and watched movies use the same HTML structure
       // Determine take parameters from environment variables
       let take: number | undefined = undefined;

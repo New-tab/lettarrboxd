@@ -17,17 +17,30 @@ interface RadarrMovie {
     }
 }
 
+interface ExistingRadarrMovie {
+    id: number;
+    title: string;
+    tmdbId?: number;
+}
+
 const DEFAULT_TAG_NAME = 'letterboxd';
 
 const axios = Axios.create({
     baseURL: env.RADARR_API_URL,
     headers: {
-        'X-Api-Key': env.RADARR_API_KEY
+        'X-Api-Key': env.RADARR_API_KEY ?? ''
     }
 });
 
+function ensureRadarrConfigured(): void {
+    if (!env.RADARR_API_URL || !env.RADARR_API_KEY) {
+        throw new Error('RADARR_API_URL and RADARR_API_KEY are required for Radarr operations');
+    }
+}
+
 export async function getQualityProfileId(profileName: string): Promise<number | null> {
     try {
+        ensureRadarrConfigured();
         logger.debug(`Getting quality profile ID for: ${profileName}`);
 
         const response = await axios.get('/api/v3/qualityprofile');
@@ -50,6 +63,7 @@ export async function getQualityProfileId(profileName: string): Promise<number |
 
 export async function getRootFolder(): Promise<string | null> {
     try {
+        ensureRadarrConfigured();
         const response = await axios.get('/api/v3/rootfolder');
         const rootFolders = response.data;
 
@@ -69,6 +83,7 @@ export async function getRootFolder(): Promise<string | null> {
 
 export async function getRootFolderById(id: string) {
     try {
+        ensureRadarrConfigured();
         const response = await axios.get(`/api/v3/rootfolder/${id}`);
         const { data } = response;
         if (data) {
@@ -84,6 +99,7 @@ export async function getRootFolderById(id: string) {
 
 export async function getOrCreateTag(tagName: string): Promise<number | null> {
     try {
+        ensureRadarrConfigured();
         logger.debug(`Getting or creating tag: ${tagName}`);
 
         const response = await axios.get('/api/v3/tag');
@@ -139,6 +155,12 @@ export async function getAllRequiredTagIds(): Promise<number[]> {
 }
 
 export async function upsertMovies(movies: LetterboxdMovie[]): Promise<void> {
+    ensureRadarrConfigured();
+
+    if (!env.RADARR_QUALITY_PROFILE) {
+        throw new Error('RADARR_QUALITY_PROFILE is required to add movies to Radarr.');
+    }
+
     const qualityProfileId = await getQualityProfileId(env.RADARR_QUALITY_PROFILE);
 
     if (!qualityProfileId) {
@@ -156,6 +178,37 @@ export async function upsertMovies(movies: LetterboxdMovie[]): Promise<void> {
     await Bluebird.map(movies, movie => {
         return addMovie(movie, qualityProfileId, rootFolderPath, tagIds, env.RADARR_MINIMUM_AVAILABILITY);
     });
+}
+
+export async function findMovieByTmdbId(tmdbId: number | string): Promise<ExistingRadarrMovie | null> {
+    ensureRadarrConfigured();
+
+    const targetTmdbId = Number(tmdbId);
+    const response = await axios.get<ExistingRadarrMovie[]>('/api/v3/movie');
+    const movies = Array.isArray(response.data) ? response.data : [];
+
+    return movies.find(movie => movie.tmdbId === targetTmdbId) ?? null;
+}
+
+export async function deleteMovieById(movieId: number): Promise<'deleted' | 'alreadyDeleted'> {
+    ensureRadarrConfigured();
+
+    try {
+        await axios.delete(`/api/v3/movie/${movieId}`, {
+            params: {
+                deleteFiles: true,
+                addImportExclusion: false
+            }
+        });
+
+        return 'deleted';
+    } catch (error: any) {
+        if (error?.response?.status === 404) {
+            return 'alreadyDeleted';
+        }
+
+        throw error;
+    }
 }
 
 export async function addMovie(movie: LetterboxdMovie, qualityProfileId: number, rootFolderPath: string, tagIds: number[], minimumAvailability: string): Promise<void> {
