@@ -184,10 +184,12 @@ export async function findMovieByTmdbId(tmdbId: number | string): Promise<Existi
     ensureRadarrConfigured();
 
     const targetTmdbId = Number(tmdbId);
-    const response = await axios.get<ExistingRadarrMovie[]>('/api/v3/movie');
+    const response = await axios.get<ExistingRadarrMovie[]>('/api/v3/movie', {
+        params: { tmdbId: targetTmdbId },
+    });
     const movies = Array.isArray(response.data) ? response.data : [];
 
-    return movies.find(movie => movie.tmdbId === targetTmdbId) ?? null;
+    return movies[0] ?? null;
 }
 
 export async function deleteMovieById(movieId: number): Promise<'deleted' | 'alreadyDeleted'> {

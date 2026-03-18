@@ -133,6 +133,10 @@ function upsertStateWithCurrentMovies(
 
     if (currentMovieKeys.has(key)) {
       nextItems[key] = { ...item };
+    } else if (item.retryCount > 0) {
+      logger.warn(
+        `Pending item ${item.name} (retryCount: ${item.retryCount}) disappeared from the source HTML and will not be retried.`
+      );
     }
   }
 
@@ -199,13 +203,16 @@ async function runRequestMode(
         logger.info(`Successfully created Seerr request for ${movie.name} (TMDb: ${movie.tmdbId}).`);
       }
     } catch (error) {
-      nextState.items[key] = markTransientItemFailure(
-        item,
-        formatError(error)
-      );
-      logger.error(
-        `Service failure while requesting ${movie.name} in Seerr. Item will remain retryable. ${formatError(error)}`
-      );
+      const errorMessage = formatError(error);
+      if (isServiceError(error)) {
+        nextState.items[key] = markTransientItemFailure(item, errorMessage);
+        logger.error(
+          `Service failure while requesting ${movie.name} in Seerr. Item will remain retryable. ${errorMessage}`
+        );
+        continue;
+      }
+
+      throw error;
     }
   }
 

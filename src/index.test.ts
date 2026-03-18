@@ -604,6 +604,58 @@ describe('main application', () => {
     );
   });
 
+  it('does not attempt Seerr cleanup when deleteMovieById throws a transient error', async () => {
+    setDeleteMode();
+    loadModules();
+
+    scraperModule.detectListType.mockReturnValue('watched_movies');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
+      createMovie({
+        id: 20,
+        name: 'Delete Transient',
+        slug: '/film/delete-transient/',
+        tmdbId: '202',
+      }),
+    ]);
+    await stateModule.saveState(dataDir, {
+      version: 1,
+      mode: 'delete',
+      items: {
+        '20': createSavedItem({
+          id: 20,
+          name: 'Delete Transient',
+          slug: '/film/delete-transient/',
+          tmdbId: '202',
+        }),
+      },
+    });
+    saveStateSpy.mockClear();
+    mountModule.mountSentinelExists.mockResolvedValue(true);
+    radarrModule.findMovieByTmdbId.mockResolvedValue({
+      id: 88,
+      title: 'Delete Transient',
+      tmdbId: 202,
+    });
+    radarrModule.deleteMovieById.mockRejectedValue({
+      isAxiosError: true,
+      message: 'Radarr delete failed transiently',
+    });
+
+    startScheduledMonitoring();
+    const savedState = await waitForState(state => (
+      state.items['20']?.lastError === 'Radarr delete failed transiently'
+    ));
+
+    expect(seerrModule.deleteMovieRequestByTmdbId).not.toHaveBeenCalled();
+    expect(savedState.items['20']).toEqual(
+      expect.objectContaining({
+        status: 'pending',
+        lastError: 'Radarr delete failed transiently',
+      })
+    );
+  });
+
   it('keeps transient Radarr failures uncapped and retryable', async () => {
     setDeleteMode();
     loadModules();

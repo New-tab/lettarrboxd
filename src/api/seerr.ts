@@ -11,9 +11,15 @@ interface SeerrRequestListResponse {
 const axios = Axios.create({
   baseURL: env.SEERR_API_URL,
   headers: {
-    'X-Api-Key': env.SEERR_API_KEY,
+    'X-Api-Key': env.SEERR_API_KEY ?? '',
   },
 });
+
+function ensureSeerrConfigured(): void {
+  if (!env.SEERR_API_URL || !env.SEERR_API_KEY) {
+    throw new Error('SEERR_API_URL and SEERR_API_KEY are required for Seerr operations');
+  }
+}
 
 function extractRequestTmdbId(request: any): number | null {
   const candidate =
@@ -50,6 +56,7 @@ function isExistingRequestError(error: any): boolean {
 export async function createMovieRequest(
   tmdbId: number | string
 ): Promise<CreateMovieRequestResult> {
+  ensureSeerrConfigured();
   try {
     await axios.post('/api/v1/request', {
       mediaType: 'movie',
@@ -68,6 +75,7 @@ export async function createMovieRequest(
 export async function findMovieRequestIdByTmdbId(
   tmdbId: number | string
 ): Promise<number | null> {
+  ensureSeerrConfigured();
   const targetTmdbId = Number(tmdbId);
   const pageSize = 100;
   let skip = 0;

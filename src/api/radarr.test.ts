@@ -297,21 +297,20 @@ describe('radarr API', () => {
   describe('findMovieByTmdbId', () => {
     it('should return the matching Radarr movie', async () => {
       mockAxiosInstance.get.mockResolvedValueOnce({
-        data: [
-          { id: 1, title: 'Movie 1', tmdbId: 123 },
-          { id: 2, title: 'Movie 2', tmdbId: 456 },
-        ],
+        data: [{ id: 2, title: 'Movie 2', tmdbId: 456 }],
       });
 
       const result = await findMovieByTmdbId('456');
 
       expect(result).toEqual({ id: 2, title: 'Movie 2', tmdbId: 456 });
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/v3/movie');
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/v3/movie', {
+        params: { tmdbId: 456 },
+      });
     });
 
     it('should return null when there is no TMDb match', async () => {
       mockAxiosInstance.get.mockResolvedValueOnce({
-        data: [{ id: 1, title: 'Movie 1', tmdbId: 123 }],
+        data: [],
       });
 
       const result = await findMovieByTmdbId('999');
