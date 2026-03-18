@@ -4,6 +4,7 @@ import { LetterboxdMovie, LETTERBOXD_BASE_URL } from ".";
 import { getMovie } from './movie';
 import logger from '../util/logger';
 import Scraper from './scraper.interface';
+import { fetchWithCloudflareFallback } from './cloudflare';
 
 export class ListScraper implements Scraper {
     constructor(private url: string, private take?: number, private strategy?: 'oldest' | 'newest') {}
@@ -49,11 +50,16 @@ export class ListScraper implements Scraper {
                     'Cache-Control': 'max-age=0'
                 }
             });
-            if (!response.ok) {
+
+            let html: string;
+            if (response.status === 403) {
+                logger.warn(`Got 403 for ${currentUrl}, retrying via FlareSolverr/Byparr`);
+                html = await fetchWithCloudflareFallback(currentUrl);
+            } else if (!response.ok) {
                 throw new Error(`Failed to fetch list page: ${response.status}`);
+            } else {
+                html = await response.text();
             }
-            
-            const html = await response.text();
             const pageLinks = this.getMovieLinksFromHtml(html);
             allLinks.push(...pageLinks);
             
