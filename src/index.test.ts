@@ -270,6 +270,7 @@ describe('main application', () => {
   });
 
   it('leaves pending delete items unchanged when mount safety fails', async () => {
+    process.env.MEDIA_MOUNT_SENTINEL = '/mnt/media/.MOUNT_OK';
     setDeleteMode();
     loadModules();
 
@@ -753,7 +754,10 @@ describe('main application', () => {
     expect(radarrModule.findMovieByTmdbId).not.toHaveBeenCalled();
     expect(radarrModule.deleteMovieById).not.toHaveBeenCalled();
     expect(seerrModule.deleteMovieRequestByTmdbId).not.toHaveBeenCalled();
-    expect(saveStateSpy).not.toHaveBeenCalled();
-    expect(await stateModule.loadState(dataDir)).toBeNull();
+    // First run in DRY_RUN mode still saves bootstrapped state so subsequent runs work correctly
+    expect(saveStateSpy).toHaveBeenCalledTimes(1);
+    const savedState = await stateModule.loadState(dataDir);
+    expect(savedState?.mode).toBe('delete');
+    expect(savedState?.items['16']?.status).toBe('acknowledged');
   });
 });

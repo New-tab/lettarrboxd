@@ -273,12 +273,14 @@ async function runDeleteMode(
     return nextState;
   }
 
-  const sentinelExists = await mountSentinelExists(env.MEDIA_MOUNT_SENTINEL);
-  if (!sentinelExists) {
-    logger.error(
-      `Mount safety failed: ${env.MEDIA_MOUNT_SENTINEL} does not exist. Skipping Radarr deletes and leaving items pending.`
-    );
-    return nextState;
+  if (env.MEDIA_MOUNT_SENTINEL) {
+    const sentinelExists = await mountSentinelExists(env.MEDIA_MOUNT_SENTINEL);
+    if (!sentinelExists) {
+      logger.error(
+        `Mount safety failed: ${env.MEDIA_MOUNT_SENTINEL} does not exist. Skipping Radarr deletes and leaving items pending.`
+      );
+      return nextState;
+    }
   }
 
   for (const key of pendingDeleteKeys) {
@@ -422,15 +424,15 @@ async function run() {
       }, {}),
     };
 
-    if (env.DRY_RUN) {
-      logDryRun(mode, bootstrappedState, currentMovieMap, true);
-      return;
-    }
-
     logger.info(
       `Delete mode first run detected. Bootstrapping ${movies.length} items without deleting historical entries.`
     );
     await saveState(env.DATA_DIR, bootstrappedState);
+
+    if (env.DRY_RUN) {
+      logDryRun(mode, bootstrappedState, currentMovieMap, true);
+    }
+
     return;
   }
 

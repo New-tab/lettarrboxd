@@ -16,7 +16,7 @@ const envSchema = z.object({
   RADARR_TAGS: z.string().optional(),
   RADARR_ADD_UNMONITORED: z.string().default('false').transform(val => val.toLowerCase() === 'true'),
   DATA_DIR: z.string().default('/data'),
-  MEDIA_MOUNT_SENTINEL: z.string().default('/mnt/media/.MOUNT_OK'),
+  MEDIA_MOUNT_SENTINEL: z.string().optional(),
   CHECK_INTERVAL_MINUTES: z.string().default('10').transform(Number).pipe(z.number().min(10)),
   LETTERBOXD_TAKE_AMOUNT: z.string().optional().transform(val => val ? Number(val) : undefined).pipe(z.number().positive().optional()),
   LETTERBOXD_TAKE_STRATEGY: z.enum(['oldest', 'newest']).optional(),
