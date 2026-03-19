@@ -29,11 +29,10 @@ Validated with Zod in `src/util/env.ts`.
 - `SEERR_API_KEY`
 
 **Always optional:**
-- `RADARR_API_URL`, `RADARR_API_KEY` — legacy, not used by any active code path
 - `FLARESOLVERR_URL`, `BYPARR_URL` — used as fallback for Cloudflare-protected request-mode pages
 - `MEDIA_MOUNT_SENTINEL` — defaults to `/mnt/media/.MOUNT_OK`, required at runtime for delete mode deletes to proceed
 - `DRY_RUN` — defaults to `false`; when `true`, no API mutations occur and state is not persisted (exception: delete mode first run still saves its bootstrap state)
-- `CHECK_INTERVAL_MINUTES` — defaults to `10`, minimum `10`
+- `CHECK_INTERVAL_MINUTES` — defaults to `10`, minimum `1`
 - `DATA_DIR` — defaults to `/data`
 - `LETTERBOXD_TAKE_AMOUNT` + `LETTERBOXD_TAKE_STRATEGY` — must be set together if used
 
@@ -56,11 +55,6 @@ Validated with Zod in `src/util/env.ts`.
 - `getMediaIdByTmdbId(tmdbId)` — resolves Seerr's internal media ID from a TMDb ID
 - `deleteMediaFile(mediaId)` — `DELETE /media/{id}/file`, removes from Radarr (requires ADMIN key)
 - `deleteMedia(mediaId)` — `DELETE /media/{id}`, removes Seerr record (requires MANAGE_REQUESTS)
-- `deleteMovieRequestByTmdbId()` — legacy, no longer called by active code
-
-### Radarr API (`src/api/radarr.ts`)
-- No longer used by any active code path
-- Legacy helpers remain but are not called
 
 ### State (`src/util/state.ts`)
 - Persists `sync-state.json` in `DATA_DIR`

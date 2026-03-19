@@ -4,13 +4,8 @@ jest.mock('./env', () => ({
   LOG_LEVEL: 'info',
   NODE_ENV: 'test',
   LETTERBOXD_URL: 'https://letterboxd.com/user/watchlist',
-  RADARR_API_URL: 'http://localhost:7878',
-  RADARR_API_KEY: 'test-key',
-  RADARR_QUALITY_PROFILE: 'HD-1080p',
-  RADARR_MINIMUM_AVAILABILITY: 'released',
   CHECK_INTERVAL_MINUTES: 10,
   DRY_RUN: false,
-  RADARR_ADD_UNMONITORED: false
 }));
 
 describe('logger', () => {

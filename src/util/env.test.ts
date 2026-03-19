@@ -32,7 +32,7 @@ describe('env', () => {
     expect(env.CHECK_INTERVAL_MINUTES).toBe(15);
   });
 
-  it('allows delete-mode sources without Radarr credentials', () => {
+  it('parses delete-mode URL with minimal required config', () => {
     process.env = {
       NODE_ENV: 'test',
       LETTERBOXD_URL: 'https://letterboxd.com/user/films',
@@ -41,11 +41,11 @@ describe('env', () => {
     };
 
     const env = require('./env').default;
-    expect(env.RADARR_API_URL).toBeUndefined();
-    expect(env.RADARR_API_KEY).toBeUndefined();
+    expect(env.LETTERBOXD_URL).toBe('https://letterboxd.com/user/films');
+    expect(env.SEERR_API_URL).toBe('http://localhost:5055');
   });
 
-  it('allows request-mode sources without Radarr credentials', () => {
+  it('applies defaults for optional fields when not set', () => {
     process.env = {
       NODE_ENV: 'test',
       LETTERBOXD_URL: 'https://letterboxd.com/user/watchlist',
@@ -54,8 +54,6 @@ describe('env', () => {
     };
 
     const env = require('./env').default;
-    expect(env.RADARR_API_URL).toBeUndefined();
-    expect(env.RADARR_API_KEY).toBeUndefined();
     expect(env.DATA_DIR).toBe('/data');
     expect(env.MEDIA_MOUNT_SENTINEL).toBe('/mnt/media/.MOUNT_OK');
   });
