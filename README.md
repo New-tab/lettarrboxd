@@ -8,11 +8,11 @@ The runtime has two modes, determined by `LETTERBOXD_URL`:
 
 - **Request mode** (watchlist, lists, filmographies): creates Seerr movie requests.
 - **Delete mode** (diary URL): when a film appears in your diary, deletes it from Radarr via Seerr, then removes the Seerr media record.
-
+<!--
 > **Why diary and not `/films/`?**
-> Letterboxd's `/films/` page shows your full watch history, but it's Cloudflare-protected and requires a headless browser (FlareSolverr) to scrape — too resource-intensive for frequent polling. Delete mode uses Letterboxd's RSS feed instead, which is lightweight, supports ETag caching (skips unchanged feeds entirely), and is perfectly suited to diary entries. If you log your watches to your diary, use `https://letterboxd.com/username/diary/` as your `LETTERBOXD_URL`.
+> Letterboxd's `/films/` page shows your full watch history, but it's Cloudflare-protected and requires a headless browser (FlareSolverr) to scrape — too resource-intensive for frequent polling. Delete mode uses Letterboxd's RSS feed instead, which is lightweight, supports ETag caching (skips unchanged feeds entirely), and is perfectly suited to diary entries. If you log your watches to your diary, use `https://letterboxd.com/username/diary/` as your `LETTERBOXD_URL`. -->
 
-## Confirmed Runtime Behavior
+<!-- ## Confirmed Runtime Behavior
 
 - Watchlists create Seerr requests; no direct Radarr interaction.
 - Diary entries run in delete mode: `DELETE /media/{id}/file` (removes from Radarr), then `DELETE /media/{id}` (removes Seerr record).
@@ -20,7 +20,7 @@ The runtime has two modes, determined by `LETTERBOXD_URL`:
 - Destructive deletes are blocked unless the mount sentinel exists at `MEDIA_MOUNT_SENTINEL` (default `/mnt/media/.MOUNT_OK`).
 - State is persisted in `DATA_DIR/sync-state.json`.
 - Run one container per Letterboxd source, each with its own `DATA_DIR`.
-- `DRY_RUN=true` performs no API mutations and does not persist state.
+- `DRY_RUN=true` performs no API mutations and does not persist state. -->
 
 ## Documented v1 Sources
 
