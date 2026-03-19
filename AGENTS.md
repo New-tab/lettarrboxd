@@ -21,16 +21,12 @@ For this project, that behavior is being adapted to a Seerr-centered media stack
 - Do **not** add watchlist movies directly to Radarr
 
 ### Delete flow
-For watched/logged movies:
-1. delete from **Radarr first**
-2. then delete the matching **Seerr request**
+For diary-logged movies (delete mode uses `/diary/` URL via RSS):
+1. `DELETE /api/v1/media/{id}/file` via Seerr — removes from Radarr (requires ADMIN key)
+2. `DELETE /api/v1/media/{id}` via Seerr — removes Seerr record (requires MANAGE_REQUESTS)
 
+Radarr is never contacted directly. All delete operations go through the Seerr API.
 Never reverse that order.
-
-### Radarr delete flags
-Use:
-- `deleteFiles=true`
-- `addImportExclusion=false`
 
 ### Mount safety
 Never run destructive deletion unless mount safety passes.
@@ -66,20 +62,14 @@ Only then should code changes begin.
 The current code may not match older docs exactly.
 Expect to inspect files such as:
 - `src/index.ts`
-- `src/scraper.ts`
-- `src/api/radarr.ts`
-- `src/util/env.ts`
-- `src/util/logger.ts`
-
-Potential new files/modules are acceptable if they keep the patch small, for example:
+- `src/scraper/index.ts`, `src/scraper/rss.ts`, `src/scraper/list.ts`
 - `src/api/seerr.ts`
-- watched/diary processing helpers
-- mount safety helpers
+- `src/util/env.ts`, `src/util/state.ts`, `src/util/mount.ts`
+
+If documentation conflicts with the code, treat the code as the source of truth.
 
 ## Validation
 
-After edits, run the relevant checks if available:
-- `yarn tsc --noEmit`
+After edits, run:
+- `yarn test:unit`
 - `yarn build`
-
-Run tests too if they exist.

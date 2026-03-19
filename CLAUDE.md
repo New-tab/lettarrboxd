@@ -9,7 +9,7 @@ Lettarrboxd monitors a single Letterboxd source on a schedule and syncs it into 
 The runtime has two modes determined by `LETTERBOXD_URL`:
 
 - **Request mode** (watchlist, lists, filmographies): creates Seerr movie requests.
-- **Delete mode** (watched/diary URLs): deletes movies from Radarr via Seerr, then removes the Seerr media record. Radarr is never contacted directly.
+- **Delete mode** (diary URL): deletes movies from Radarr via Seerr, then removes the Seerr media record. Radarr is never contacted directly. Use `/diary/` — not `/films/`. Delete mode uses Letterboxd's RSS feed, which only contains diary-logged entries; `/films/` would require Cloudflare-bypassing HTML scraping and is not supported for delete mode.
 
 ## Commands
 
