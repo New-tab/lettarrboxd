@@ -1,7 +1,6 @@
 import { ListScraper } from './list';
 import { CollectionsScraper } from './collections';
 import { PopularScraper } from './popular';
-import { RssScraper } from './rss';
 import env from '../util/env';
 
 export interface LetterboxdMovie {
@@ -80,8 +79,9 @@ export const fetchMoviesFromUrl = async (url: string): Promise<LetterboxdMovie[]
   switch (listType) {
     case ListType.WATCHED_MOVIES:
     case ListType.DIARY:
-      // Delete-mode sources use the RSS feed — no Cloudflare issues, TMDB IDs included
-      return new RssScraper(url).getMovies();
+      // Delete-mode sources are fetched directly in the run loop via RssScraper (with ETag support).
+      // Calling fetchMoviesFromUrl for these list types is not supported.
+      throw new Error(`fetchMoviesFromUrl does not support delete-mode list type: ${listType}`);
 
     case ListType.ACTOR_FILMOGRAPHY:
     case ListType.DIRECTOR_FILMOGRAPHY:

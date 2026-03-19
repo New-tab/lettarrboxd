@@ -3,6 +3,7 @@ import {
   extractUsernameFromLetterboxdUrl,
   parseFilmSlugFromLink,
   parseRssFeed,
+  RssScraper,
 } from './rss';
 
 const SAMPLE_RSS = `<?xml version="1.0" encoding="utf-8"?>
@@ -151,6 +152,76 @@ describe('RssScraper utilities', () => {
     it('returns empty array for feed with no watched entries', () => {
       const emptyFeed = `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`;
       expect(parseRssFeed(emptyFeed)).toEqual([]);
+    });
+  });
+
+  describe('RssScraper.getMovies', () => {
+    const mockFetch = jest.fn();
+
+    beforeEach(() => {
+      global.fetch = mockFetch;
+      mockFetch.mockReset();
+    });
+
+    it('fetches and parses the RSS feed', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: { get: () => '"etag-abc"' },
+        text: async () => SAMPLE_RSS,
+      });
+
+      const scraper = new RssScraper('https://letterboxd.com/testuser/films/');
+      const result = await scraper.getMovies();
+
+      expect(result).not.toBeNull();
+      expect(result!.movies).toHaveLength(2);
+      expect(result!.etag).toBe('"etag-abc"');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://letterboxd.com/testuser/rss/',
+        { headers: {} }
+      );
+    });
+
+    it('sends If-None-Match header when etag is provided', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: { get: () => '"etag-new"' },
+        text: async () => SAMPLE_RSS,
+      });
+
+      const scraper = new RssScraper('https://letterboxd.com/testuser/films/');
+      await scraper.getMovies('"etag-old"');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://letterboxd.com/testuser/rss/',
+        { headers: { 'If-None-Match': '"etag-old"' } }
+      );
+    });
+
+    it('returns null on 304 Not Modified', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 304,
+        headers: { get: () => null },
+      });
+
+      const scraper = new RssScraper('https://letterboxd.com/testuser/films/');
+      const result = await scraper.getMovies('"etag-current"');
+
+      expect(result).toBeNull();
+    });
+
+    it('throws on non-304 error responses', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        headers: { get: () => null },
+      });
+
+      const scraper = new RssScraper('https://letterboxd.com/testuser/films/');
+      await expect(scraper.getMovies()).rejects.toThrow('Failed to fetch RSS feed: 403');
     });
   });
 });

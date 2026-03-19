@@ -28,6 +28,7 @@ export interface SyncStateItem {
 export interface SyncState {
   version: number;
   mode: SyncMode;
+  rssEtag?: string | null;
   items: Record<string, SyncStateItem>;
 }
 
@@ -80,20 +81,6 @@ export function createStateItem(movie: LetterboxdMovie, timestamp: string): Sync
     retryCount: 0,
     status: 'pending',
     lastError: null,
-  };
-}
-
-export function touchStateItem(
-  item: SyncStateItem,
-  movie: LetterboxdMovie,
-  timestamp: string
-): SyncStateItem {
-  return {
-    ...item,
-    name: movie.name,
-    slug: movie.slug,
-    tmdbId: movie.tmdbId ?? null,
-    lastSeenAt: timestamp,
   };
 }
 

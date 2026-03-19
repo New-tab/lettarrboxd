@@ -57,6 +57,11 @@ export function parseRssFeed(xml: string): LetterboxdMovie[] {
   return movies;
 }
 
+export interface RssFetchResult {
+  movies: LetterboxdMovie[];
+  etag: string | null;
+}
+
 export class RssScraper {
   private rssUrl: string;
 
@@ -64,13 +69,27 @@ export class RssScraper {
     this.rssUrl = buildRssUrl(letterboxdUrl);
   }
 
-  async getMovies(): Promise<LetterboxdMovie[]> {
-    const response = await fetch(this.rssUrl);
+  async getMovies(etag?: string | null): Promise<RssFetchResult | null> {
+    const headers: Record<string, string> = {};
+    if (etag) {
+      headers['If-None-Match'] = etag;
+    }
+
+    const response = await fetch(this.rssUrl, { headers });
+
+    if (response.status === 304) {
+      return null;
+    }
+
     if (!response.ok) {
       throw new Error(`Failed to fetch RSS feed: ${response.status}`);
     }
 
+    const newEtag = response.headers.get('etag');
     const xml = await response.text();
-    return parseRssFeed(xml);
+    return {
+      movies: parseRssFeed(xml),
+      etag: newEtag,
+    };
   }
 }

@@ -11,6 +11,7 @@ import {
   LetterboxdMovie,
   SyncMode,
 } from './scraper';
+import { RssScraper } from './scraper/rss';
 import {
   createMovieRequest,
   deleteMedia,
@@ -133,7 +134,7 @@ function upsertStateWithCurrentMovies(
       nextItems[key] = { ...item };
     } else if (item.retryCount > 0) {
       logger.warn(
-        `Pending item ${item.name} (retryCount: ${item.retryCount}) disappeared from the source HTML and will not be retried.`
+        `Pending item ${item.name} (retryCount: ${item.retryCount}) disappeared from the source feed and will not be retried.`
       );
     }
   }
@@ -390,11 +391,27 @@ function logDryRun(
 
 async function run() {
   const mode = getModeForUrl(env.LETTERBOXD_URL);
-  const movies = await fetchMoviesFromUrl(env.LETTERBOXD_URL);
-  const currentMovieMap = buildCurrentMovieMap(movies);
-  const timestamp = new Date().toISOString();
   const loadedState = await loadState(env.DATA_DIR);
   const isFirstRun = !loadedState || loadedState.mode !== mode;
+
+  let movies: LetterboxdMovie[];
+  let newRssEtag: string | null | undefined;
+
+  if (mode === 'delete') {
+    const rssScraper = new RssScraper(env.LETTERBOXD_URL);
+    const result = await rssScraper.getMovies(loadedState?.rssEtag);
+    if (result === null) {
+      logger.debug('RSS feed unchanged (304). Skipping run.');
+      return;
+    }
+    movies = result.movies;
+    newRssEtag = result.etag;
+  } else {
+    movies = await fetchMoviesFromUrl(env.LETTERBOXD_URL);
+  }
+
+  const currentMovieMap = buildCurrentMovieMap(movies);
+  const timestamp = new Date().toISOString();
 
   if (loadedState && loadedState.mode !== mode) {
     logger.warn(
@@ -411,6 +428,7 @@ async function run() {
   if (mode === 'delete' && isFirstRun) {
     const bootstrappedState: SyncState = {
       ...state,
+      ...(newRssEtag !== undefined ? { rssEtag: newRssEtag } : {}),
       items: Object.entries(state.items).reduce<SyncState['items']>((items, [key, item]) => {
         items[key] = markAcknowledged(item);
         return items;
@@ -434,9 +452,13 @@ async function run() {
     return;
   }
 
-  const nextState = mode === 'request'
+  let nextState = mode === 'request'
     ? await runRequestMode(state, currentMovieMap)
     : await runDeleteMode(state, currentMovieMap);
+
+  if (newRssEtag !== undefined) {
+    nextState = { ...nextState, rssEtag: newRssEtag };
+  }
 
   await saveState(env.DATA_DIR, nextState);
 }

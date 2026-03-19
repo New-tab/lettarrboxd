@@ -30,6 +30,10 @@ jest.mock('./util/mount', () => ({
   mountSentinelExists: jest.fn(),
 }));
 
+jest.mock('./scraper/rss', () => ({
+  RssScraper: jest.fn(),
+}));
+
 describe('main application', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let dataDir: string;
@@ -40,6 +44,7 @@ describe('main application', () => {
   let seerrModule: any;
   let mountModule: any;
   let stateModule: any;
+  let rssModule: any;
 
   const createMovie = (
     overrides: Partial<{
@@ -117,8 +122,15 @@ describe('main application', () => {
     seerrModule = require('./api/seerr');
     mountModule = require('./util/mount');
     stateModule = require('./util/state');
+    rssModule = require('./scraper/rss');
     saveStateSpy = jest.spyOn(stateModule, 'saveState');
     ({ startScheduledMonitoring } = require('./index'));
+  }
+
+  function mockRssScraper(movies: any[], etag: string | null = '"etag-123"') {
+    const mockGetMovies = jest.fn().mockResolvedValue({ movies, etag });
+    rssModule.RssScraper.mockImplementation(() => ({ getMovies: mockGetMovies }));
+    return mockGetMovies;
   }
 
   function setRequestMode(): void {
@@ -233,13 +245,8 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('watched_movies');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 9,
-        name: 'Watched Movie',
-        slug: '/film/watched-movie/',
-        tmdbId: '999',
-      }),
+    mockRssScraper([
+      createMovie({ id: 9, name: 'Watched Movie', slug: '/film/watched-movie/', tmdbId: '999' }),
     ]);
 
     startScheduledMonitoring();
@@ -270,13 +277,8 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('watched_movies');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 5,
-        name: 'Pending Delete',
-        slug: '/film/pending-delete/',
-        tmdbId: '555',
-      }),
+    mockRssScraper([
+      createMovie({ id: 5, name: 'Pending Delete', slug: '/film/pending-delete/', tmdbId: '555' }),
     ]);
     await stateModule.saveState(dataDir, {
       version: 1,
@@ -318,13 +320,8 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('watched_movies');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 7,
-        name: 'Delete Me',
-        slug: '/film/delete-me/',
-        tmdbId: '777',
-      }),
+    mockRssScraper([
+      createMovie({ id: 7, name: 'Delete Me', slug: '/film/delete-me/', tmdbId: '777' }),
     ]);
     await stateModule.saveState(dataDir, {
       version: 1,
@@ -372,13 +369,8 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('watched_movies');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 7,
-        name: 'Not In Seerr',
-        slug: '/film/not-in-seerr/',
-        tmdbId: '777',
-      }),
+    mockRssScraper([
+      createMovie({ id: 7, name: 'Not In Seerr', slug: '/film/not-in-seerr/', tmdbId: '777' }),
     ]);
     await stateModule.saveState(dataDir, {
       version: 1,
@@ -414,13 +406,8 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('watched_movies');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 7,
-        name: 'Delete Me',
-        slug: '/film/delete-me/',
-        tmdbId: '777',
-      }),
+    mockRssScraper([
+      createMovie({ id: 7, name: 'Delete Me', slug: '/film/delete-me/', tmdbId: '777' }),
     ]);
     await stateModule.saveState(dataDir, {
       version: 1,
@@ -460,7 +447,7 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('diary');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([]);
+    mockRssScraper([]);
     await stateModule.saveState(dataDir, {
       version: 1,
       mode: 'delete',
@@ -592,13 +579,8 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('watched_movies');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 20,
-        name: 'Delete Transient',
-        slug: '/film/delete-transient/',
-        tmdbId: '202',
-      }),
+    mockRssScraper([
+      createMovie({ id: 20, name: 'Delete Transient', slug: '/film/delete-transient/', tmdbId: '202' }),
     ]);
     await stateModule.saveState(dataDir, {
       version: 1,
@@ -640,13 +622,8 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('watched_movies');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 14,
-        name: 'Transient Delete Failure',
-        slug: '/film/transient-delete-failure/',
-        tmdbId: '414',
-      }),
+    mockRssScraper([
+      createMovie({ id: 14, name: 'Transient Delete Failure', slug: '/film/transient-delete-failure/', tmdbId: '414' }),
     ]);
     await stateModule.saveState(dataDir, {
       version: 1,
@@ -708,6 +685,22 @@ describe('main application', () => {
     expect(await stateModule.loadState(dataDir)).toBeNull();
   });
 
+  it('skips processing when RSS feed returns 304', async () => {
+    setDeleteMode();
+    loadModules();
+
+    scraperModule.detectListType.mockReturnValue('watched_movies');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    const mockGetMovies = jest.fn().mockResolvedValue(null); // 304
+    rssModule.RssScraper.mockImplementation(() => ({ getMovies: mockGetMovies }));
+
+    startScheduledMonitoring();
+    await flushAsyncWork();
+
+    expect(seerrModule.getMediaIdByTmdbId).not.toHaveBeenCalled();
+    expect(saveStateSpy).not.toHaveBeenCalled();
+  });
+
   it('does not mutate or persist in DRY_RUN delete mode', async () => {
     process.env.DRY_RUN = 'true';
     setDeleteMode();
@@ -715,13 +708,8 @@ describe('main application', () => {
 
     scraperModule.detectListType.mockReturnValue('watched_movies');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 16,
-        name: 'Dry Run Delete',
-        slug: '/film/dry-run-delete/',
-        tmdbId: '616',
-      }),
+    mockRssScraper([
+      createMovie({ id: 16, name: 'Dry Run Delete', slug: '/film/dry-run-delete/', tmdbId: '616' }),
     ]);
 
     startScheduledMonitoring();
