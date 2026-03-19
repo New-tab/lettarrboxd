@@ -1,8 +1,8 @@
 services:
   # V2: single container with multiple URLs (recommended)
-  lettarrboxd:
-    image: ryanpage/lettarrboxd:latest
-    container_name: lettarrboxd
+  seerrboxd:
+    image: ryanpage/seerrboxd:latest
+    container_name: seerrboxd
     ports:
       - "3000:3000"
     environment:
@@ -25,9 +25,9 @@ services:
     restart: unless-stopped
 
   # Legacy: single LETTERBOXD_URL still works for backward compatibility
-  # lettarrboxd-legacy:
-  #   image: ryanpage/lettarrboxd:latest
-  #   container_name: lettarrboxd-legacy
+  # seerrboxd-legacy:
+  #   image: ryanpage/seerrboxd:latest
+  #   container_name: seerrboxd-legacy
   #   ports:
   #     - "3000:3000"
   #   environment:

@@ -143,7 +143,7 @@ describe('state utilities', () => {
     let dataDir: string;
 
     beforeEach(async () => {
-      dataDir = await mkdtemp(path.join(os.tmpdir(), 'lettarrboxd-state-test-'));
+      dataDir = await mkdtemp(path.join(os.tmpdir(), 'seerrboxd-state-test-'));
     });
 
     afterEach(async () => {
@@ -232,7 +232,7 @@ describe('state utilities', () => {
     let dataDir: string;
 
     beforeEach(async () => {
-      dataDir = await mkdtemp(path.join(os.tmpdir(), 'lettarrboxd-state-test-'));
+      dataDir = await mkdtemp(path.join(os.tmpdir(), 'seerrboxd-state-test-'));
     });
 
     afterEach(async () => {

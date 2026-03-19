@@ -169,7 +169,7 @@ describe('main application', () => {
     jest.resetModules();
     jest.clearAllMocks();
 
-    dataDir = await mkdtemp(path.join(os.tmpdir(), 'lettarrboxd-index-test-'));
+    dataDir = await mkdtemp(path.join(os.tmpdir(), 'seerrboxd-index-test-'));
 
     process.env = {
       NODE_ENV: 'test',

@@ -64,7 +64,7 @@ describe('server', () => {
 
   beforeEach(async () => {
     originalEnv = { ...process.env };
-    dataDir = await mkdtemp(path.join(os.tmpdir(), 'lettarrboxd-server-test-'));
+    dataDir = await mkdtemp(path.join(os.tmpdir(), 'seerrboxd-server-test-'));
   });
 
   afterEach(async () => {

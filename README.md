@@ -67,35 +67,35 @@ Additional recognized URL types (outside the primary v1 workflow):
 
 ```bash
 docker run -d \
-  --name lettarrboxd-watchlist \
+  --name seerrboxd-watchlist \
   -e LETTERBOXD_URL=https://letterboxd.com/username/watchlist/ \
   -e SEERR_API_URL=http://seerr:5055 \
   -e SEERR_API_KEY=your_seerr_api_key \
   -e CHECK_INTERVAL_MINUTES=60 \
   -v ./data/watchlist:/data \
-  ghcr.io/New-tab/lettarrboxd:latest
+  ghcr.io/New-tab/seerrboxd:latest
 ```
 
 ### Diary delete-mode instance
 
 ```bash
 docker run -d \
-  --name lettarrboxd-diary \
+  --name seerrboxd-diary \
   -e LETTERBOXD_URL=https://letterboxd.com/username/diary/ \
   -e SEERR_API_URL=http://seerr:5055 \
   -e SEERR_API_KEY=your_seerr_api_key \
   -e MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK \
   -e CHECK_INTERVAL_MINUTES=5 \
   -v ./data/diary:/data \
-  ghcr.io/New-tab/lettarrboxd:latest
+  ghcr.io/New-tab/seerrboxd:latest
 ```
 
 ### Docker Compose (both modes)
 
 ```yaml
 services:
-  lettarrboxd-watchlist:
-    image: ghcr.io/New-tab/lettarrboxd:latest
+  seerrboxd-watchlist:
+    image: ghcr.io/New-tab/seerrboxd:latest
     environment:
       - LETTERBOXD_URL=https://letterboxd.com/username/watchlist/
       - SEERR_API_URL=http://seerr:5055
@@ -104,8 +104,8 @@ services:
     volumes:
       - ./data/watchlist:/data
 
-  lettarrboxd-diary:
-    image: ghcr.io/New-tab/lettarrboxd:latest
+  seerrboxd-diary:
+    image: ghcr.io/New-tab/seerrboxd:latest
     environment:
       - LETTERBOXD_URL=https://letterboxd.com/username/diary/
       - SEERR_API_URL=http://seerr:5055

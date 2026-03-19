@@ -8,7 +8,7 @@ process.env.SEERR_API_KEY = 'seerr-test-key';
 process.env.RADARR_API_URL = 'http://localhost:7878';
 process.env.RADARR_API_KEY = 'test-key';
 process.env.RADARR_QUALITY_PROFILE = 'HD-1080p';
-process.env.DATA_DIR = '/tmp/lettarrboxd-test';
+process.env.DATA_DIR = '/tmp/seerrboxd-test';
 process.env.MEDIA_MOUNT_SENTINEL = '/mnt/media/.MOUNT_OK';
 process.env.LOG_LEVEL = 'error'; // Suppress logs during tests
 
