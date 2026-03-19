@@ -22,6 +22,7 @@ import { mountSentinelExists } from './util/mount';
 import {
   createEmptyState,
   createStateItem,
+  getOrCreateSourceState,
   getStateKey,
   loadState,
   LOGIC_RETRY_LIMIT,
@@ -32,9 +33,11 @@ import {
   markTransientItemFailure,
   saveState,
   shouldSkipAfterRetry,
+  SourceState,
   SyncState,
   SyncStateItem,
 } from './util/state';
+import { startServer } from './server';
 
 function getModeForUrl(url: string): SyncMode {
   const listType = detectListType(url);
@@ -107,18 +110,18 @@ function applyBoundedRetryFailure(
 }
 
 function upsertStateWithCurrentMovies(
-  state: SyncState,
+  state: SourceState,
   movies: LetterboxdMovie[],
   mode: SyncMode,
   timestamp: string
-) {
+): SourceState {
   const currentMovieKeys = new Set<string>();
 
   for (const movie of movies) {
     currentMovieKeys.add(getStateKey(movie.id));
   }
 
-  const nextItems: SyncState['items'] = {};
+  const nextItems: SourceState['items'] = {};
   for (const [key, item] of Object.entries(state.items)) {
     if (item.status === 'cleanupPending') {
       nextItems[key] = { ...item };
@@ -169,10 +172,10 @@ function buildCurrentMovieMap(movies: LetterboxdMovie[]): Map<string, Letterboxd
 }
 
 async function runRequestMode(
-  state: SyncState,
+  state: SourceState,
   currentMovieMap: Map<string, LetterboxdMovie>
-): Promise<SyncState> {
-  const nextState: SyncState = {
+): Promise<SourceState> {
+  const nextState: SourceState = {
     ...state,
     items: { ...state.items },
   };
@@ -218,8 +221,8 @@ async function runRequestMode(
   return nextState;
 }
 
-async function runCleanupPendingItems(state: SyncState): Promise<SyncState> {
-  const nextState: SyncState = {
+async function runCleanupPendingItems(state: SourceState): Promise<SourceState> {
+  const nextState: SourceState = {
     ...state,
     items: { ...state.items },
   };
@@ -260,9 +263,9 @@ async function runCleanupPendingItems(state: SyncState): Promise<SyncState> {
 }
 
 async function runDeleteMode(
-  state: SyncState,
+  state: SourceState,
   currentMovieMap: Map<string, LetterboxdMovie>
-): Promise<SyncState> {
+): Promise<SourceState> {
   let nextState = await runCleanupPendingItems(state);
   const pendingDeleteKeys = Object.entries(nextState.items)
     .filter(([key, item]) => item.status === 'pending' && currentMovieMap.has(key))
@@ -346,7 +349,7 @@ async function runDeleteMode(
 
 function logDryRun(
   mode: SyncMode,
-  state: SyncState,
+  state: SourceState,
   currentMovieMap: Map<string, LetterboxdMovie>,
   isFirstRun: boolean
 ): void {
@@ -389,78 +392,115 @@ function logDryRun(
   }
 }
 
-async function run() {
-  const mode = getModeForUrl(env.LETTERBOXD_URL);
-  const loadedState = await loadState(env.DATA_DIR);
-  const isFirstRun = !loadedState || loadedState.mode !== mode;
+function checkCrossSourceOverlap(
+  globalState: SyncState,
+  currentUrl: string,
+  currentMovieMap: Map<string, LetterboxdMovie>
+): void {
+  for (const [url, sourceState] of Object.entries(globalState.sources)) {
+    if (url === currentUrl) continue;
 
-  let movies: LetterboxdMovie[];
-  let newRssEtag: string | null | undefined;
-
-  if (mode === 'delete') {
-    const rssScraper = new RssScraper(env.LETTERBOXD_URL);
-    const result = await rssScraper.getMovies(loadedState?.rssEtag);
-    if (result === null) {
-      logger.debug('RSS feed unchanged (304). Skipping run.');
-      return;
+    for (const [key, item] of Object.entries(sourceState.items)) {
+      if (item.status === 'pending' && currentMovieMap.has(key)) {
+        const movie = currentMovieMap.get(key)!;
+        logger.warn(
+          `Cross-source overlap detected: ${movie.name} is pending in ${url} and also present in ${currentUrl}. Both sources will process it independently.`
+        );
+      }
     }
-    movies = result.movies;
-    newRssEtag = result.etag;
-  } else {
-    movies = await fetchMoviesFromUrl(env.LETTERBOXD_URL);
   }
+}
 
-  const currentMovieMap = buildCurrentMovieMap(movies);
+export async function runAllSources(): Promise<void> {
   const timestamp = new Date().toISOString();
+  let globalState = (await loadState(env.DATA_DIR, env.letterboxdUrls[0])) ?? createEmptyState();
+  let shouldSave = false;
 
-  if (loadedState && loadedState.mode !== mode) {
-    logger.warn(
-      `State mode ${loadedState.mode} does not match current mode ${mode}. Resetting state for this data directory.`
-    );
-  }
+  for (const url of env.letterboxdUrls) {
+    const mode = getModeForUrl(url);
+    const existingSource = globalState.sources[url];
+    const isFirstRun = !existingSource || existingSource.mode !== mode;
 
-  let state = loadedState && loadedState.mode === mode
-    ? loadedState
-    : createEmptyState(mode);
+    if (existingSource && existingSource.mode !== mode) {
+      logger.warn(
+        `Mode mismatch for ${url}: stored state has mode ${existingSource.mode} but URL resolves to ${mode}. Resetting source state.`
+      );
+    }
 
-  state = upsertStateWithCurrentMovies(state, movies, mode, timestamp);
+    let sourceState = getOrCreateSourceState(globalState, url, mode);
 
-  if (mode === 'delete' && isFirstRun) {
-    const bootstrappedState: SyncState = {
-      ...state,
-      ...(newRssEtag !== undefined ? { rssEtag: newRssEtag } : {}),
-      items: Object.entries(state.items).reduce<SyncState['items']>((items, [key, item]) => {
-        items[key] = markAcknowledged(item);
-        return items;
-      }, {}),
-    };
+    let movies: LetterboxdMovie[];
+    let newRssEtag: string | null | undefined;
 
-    logger.info(
-      `Delete mode first run detected. Bootstrapping ${movies.length} items without deleting historical entries.`
-    );
-    await saveState(env.DATA_DIR, bootstrappedState);
+    if (mode === 'delete') {
+      const rssScraper = new RssScraper(url);
+      const result = await rssScraper.getMovies(sourceState.rssEtag);
+      if (result === null) {
+        logger.debug(`RSS feed for ${url} unchanged (304). Skipping source.`);
+        continue;
+      }
+      movies = result.movies;
+      newRssEtag = result.etag;
+    } else {
+      movies = await fetchMoviesFromUrl(url);
+    }
+
+    const currentMovieMap = buildCurrentMovieMap(movies);
+
+    sourceState = upsertStateWithCurrentMovies(sourceState, movies, mode, timestamp);
+
+    if (newRssEtag !== undefined) {
+      sourceState = { ...sourceState, rssEtag: newRssEtag };
+    }
+
+    if (mode === 'delete' && isFirstRun) {
+      const bootstrappedItems = Object.entries(sourceState.items).reduce<SourceState['items']>(
+        (items, [key, item]) => {
+          items[key] = markAcknowledged(item);
+          return items;
+        },
+        {}
+      );
+
+      sourceState = { ...sourceState, items: bootstrappedItems };
+      logger.info(
+        `Delete mode first run for ${url}. Bootstrapping ${movies.length} items without deleting historical entries.`
+      );
+
+      globalState = {
+        ...globalState,
+        sources: { ...globalState.sources, [url]: sourceState },
+      };
+      await saveState(env.DATA_DIR, globalState);
+
+      if (env.DRY_RUN) {
+        logDryRun(mode, sourceState, currentMovieMap, true);
+      }
+
+      continue;
+    }
 
     if (env.DRY_RUN) {
-      logDryRun(mode, bootstrappedState, currentMovieMap, true);
+      logDryRun(mode, sourceState, currentMovieMap, isFirstRun);
+      continue;
     }
 
-    return;
+    checkCrossSourceOverlap(globalState, url, currentMovieMap);
+
+    const nextSourceState = mode === 'request'
+      ? await runRequestMode(sourceState, currentMovieMap)
+      : await runDeleteMode(sourceState, currentMovieMap);
+
+    globalState = {
+      ...globalState,
+      sources: { ...globalState.sources, [url]: nextSourceState },
+    };
+    shouldSave = true;
   }
 
-  if (env.DRY_RUN) {
-    logDryRun(mode, state, currentMovieMap, isFirstRun);
-    return;
+  if (shouldSave) {
+    await saveState(env.DATA_DIR, globalState);
   }
-
-  let nextState = mode === 'request'
-    ? await runRequestMode(state, currentMovieMap)
-    : await runDeleteMode(state, currentMovieMap);
-
-  if (newRssEtag !== undefined) {
-    nextState = { ...nextState, rssEtag: newRssEtag };
-  }
-
-  await saveState(env.DATA_DIR, nextState);
 }
 
 function startScheduledMonitoring(): void {
@@ -469,14 +509,14 @@ function startScheduledMonitoring(): void {
   logger.info(`Starting scheduled monitoring. Will check every ${env.CHECK_INTERVAL_MINUTES} minutes.`);
 
   // Run immediately on startup
-  run().catch(error => {
+  runAllSources().catch(error => {
     logger.error(error);
   });
 
   // Then run on interval
   setInterval(async () => {
     try {
-      await run();
+      await runAllSources();
     } catch (error) {
       logger.error(error);
     }
@@ -485,6 +525,7 @@ function startScheduledMonitoring(): void {
 
 export async function main() {
   startScheduledMonitoring();
+  startServer(env.PORT, runAllSources);
 }
 
 export { startScheduledMonitoring };

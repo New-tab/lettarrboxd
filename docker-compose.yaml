@@ -1,10 +1,13 @@
 services:
-  # Request-mode example: watchlist -> Seerr requests
-  lettarrboxd-watchlist:
+  # V2: single container with multiple URLs (recommended)
+  lettarrboxd:
     image: ryanpage/lettarrboxd:latest
-    container_name: lettarrboxd-watchlist
+    container_name: lettarrboxd
+    ports:
+      - "3000:3000"
     environment:
-      - LETTERBOXD_URL=https://letterboxd.com/your_username/watchlist/
+      # Comma-separated list: request-mode and/or delete-mode URLs
+      - LETTERBOXD_URLS=https://letterboxd.com/your_username/watchlist/,https://letterboxd.com/your_username/films/diary/
       - SEERR_API_URL=http://seerr:5055
       - SEERR_API_KEY=your_seerr_api_key
       - NODE_ENV=production
@@ -12,47 +15,30 @@ services:
       - CHECK_INTERVAL_MINUTES=60
       - DATA_DIR=/data
       - MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK
-      # Optional movie limiting (both required if using)
+      # Status/control endpoint port (default: 3000)
+      # - PORT=3000
+      # Optional movie limiting for request-mode sources (both required if using)
       # - LETTERBOXD_TAKE_AMOUNT=10
       # - LETTERBOXD_TAKE_STRATEGY=newest
     volumes:
-      - ./data/watchlist:/data
+      - ./data:/data
     restart: unless-stopped
 
-  # Delete-mode example: watched/diary -> Radarr delete first, then Seerr cleanup
-  # lettarrboxd-watched:
+  # Legacy: single LETTERBOXD_URL still works for backward compatibility
+  # lettarrboxd-legacy:
   #   image: ryanpage/lettarrboxd:latest
-  #   container_name: lettarrboxd-watched
+  #   container_name: lettarrboxd-legacy
+  #   ports:
+  #     - "3000:3000"
   #   environment:
-  #     - LETTERBOXD_URL=https://letterboxd.com/your_username/films/
+  #     - LETTERBOXD_URL=https://letterboxd.com/your_username/watchlist/
   #     - SEERR_API_URL=http://seerr:5055
   #     - SEERR_API_KEY=your_seerr_api_key
-  #     - RADARR_API_URL=http://radarr:7878
-  #     - RADARR_API_KEY=your_radarr_api_key
   #     - NODE_ENV=production
   #     - LOG_LEVEL=info
   #     - CHECK_INTERVAL_MINUTES=60
   #     - DATA_DIR=/data
   #     - MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK
   #   volumes:
-  #     - ./data/watched:/data
-  #   restart: unless-stopped
-
-  # Run one instance per Letterboxd source and give each instance its own DATA_DIR.
-  # Uncomment and adapt additional services as needed.
-
-  # lettarrboxd-diary:
-  #   image: ryanpage/lettarrboxd:latest
-  #   container_name: lettarrboxd-diary
-  #   environment:
-  #     - LETTERBOXD_URL=https://letterboxd.com/your_username/films/diary/
-  #     - SEERR_API_URL=http://seerr:5055
-  #     - SEERR_API_KEY=your_seerr_api_key
-  #     - RADARR_API_URL=http://radarr:7878
-  #     - RADARR_API_KEY=your_radarr_api_key
-  #     - CHECK_INTERVAL_MINUTES=60
-  #     - DATA_DIR=/data
-  #     - MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK
-  #   volumes:
-  #     - ./data/diary:/data
+  #     - ./data:/data
   #   restart: unless-stopped

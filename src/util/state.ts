@@ -2,7 +2,7 @@ import path from 'path';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { LetterboxdMovie, SyncMode } from '../scraper';
 
-export const SYNC_STATE_VERSION = 1;
+export const SYNC_STATE_VERSION = 2;
 export const SYNC_STATE_FILENAME = 'sync-state.json';
 export const LOGIC_RETRY_LIMIT = 3;
 
@@ -25,29 +25,75 @@ export interface SyncStateItem {
   lastError: string | null;
 }
 
-export interface SyncState {
+export interface SourceState {
+  url: string;
+  mode: SyncMode;
+  rssEtag?: string | null;
+  items: Record<string, SyncStateItem>;
+}
+
+export interface SyncStateV1 {
   version: number;
   mode: SyncMode;
   rssEtag?: string | null;
   items: Record<string, SyncStateItem>;
 }
 
-export function createEmptyState(mode: SyncMode): SyncState {
+export interface SyncStateV2 {
+  version: 2;
+  sources: Record<string, SourceState>;
+}
+
+export type SyncState = SyncStateV2;
+
+export function createEmptyState(): SyncStateV2 {
   return {
-    version: SYNC_STATE_VERSION,
-    mode,
-    items: {},
+    version: 2,
+    sources: {},
   };
+}
+
+export function migrateV1toV2(v1: SyncStateV1, url: string): SyncStateV2 {
+  return {
+    version: 2,
+    sources: {
+      [url]: {
+        url,
+        mode: v1.mode,
+        rssEtag: v1.rssEtag ?? null,
+        items: v1.items,
+      },
+    },
+  };
+}
+
+export function getOrCreateSourceState(state: SyncStateV2, url: string, mode: SyncMode): SourceState {
+  const existing = state.sources[url];
+  if (existing && existing.mode === mode) {
+    return existing;
+  }
+  return { url, mode, items: {} };
 }
 
 export function getStateFilePath(dataDir: string): string {
   return path.join(dataDir, SYNC_STATE_FILENAME);
 }
 
-export async function loadState(dataDir: string): Promise<SyncState | null> {
+export async function loadState(dataDir: string, migrateUrl?: string): Promise<SyncState | null> {
   try {
     const raw = await readFile(getStateFilePath(dataDir), 'utf8');
-    return JSON.parse(raw) as SyncState;
+    const parsed = JSON.parse(raw);
+
+    if (parsed.version === 2) {
+      return parsed as SyncStateV2;
+    }
+
+    // V1 migration: wrap single-source state into V2 structure
+    if (migrateUrl) {
+      return migrateV1toV2(parsed as SyncStateV1, migrateUrl);
+    }
+
+    return null;
   } catch (error: any) {
     if (error?.code === 'ENOENT') {
       return null;
