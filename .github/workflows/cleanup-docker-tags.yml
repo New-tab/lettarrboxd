@@ -7,7 +7,7 @@ on:
   workflow_dispatch: # Allow manual trigger
 
 env:
-  IMAGE_NAME: ryanpage/seerrboxd
+  IMAGE_NAME: cluelessidiot1/seerrboxd
 
 jobs:
   cleanup:
