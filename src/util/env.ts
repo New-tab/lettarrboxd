@@ -10,7 +10,7 @@ const envSchema = z.object({
   SEERR_API_KEY: z.string(),
   DATA_DIR: z.string().default('/data'),
   MEDIA_MOUNT_SENTINEL: z.string().optional().default('/mnt/media/.MOUNT_OK'),
-  CHECK_INTERVAL_MINUTES: z.string().default('10').transform(Number).pipe(z.number().min(1)),
+  CHECK_INTERVAL_MINUTES: z.string().default('10').transform(Number).pipe(z.number().min(10)),
   LETTERBOXD_TAKE_AMOUNT: z.string().optional().transform(val => val ? Number(val) : undefined).pipe(z.number().positive().optional()),
   LETTERBOXD_TAKE_STRATEGY: z.enum(['oldest', 'newest']).optional(),
   DRY_RUN: z.string().default('false').transform(val => val.toLowerCase() === 'true'),
