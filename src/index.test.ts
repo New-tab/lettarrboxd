@@ -668,7 +668,10 @@ describe('main application', () => {
     ]);
 
     startScheduledMonitoring();
-    await flushAsyncWork();
+    // Use waitForState to reliably detect the bootstrap save regardless of CI timing
+    const savedState = await waitForState(state =>
+      state?.sources?.[DELETE_URL]?.items['16']?.status === 'acknowledged'
+    );
 
     expect(mountModule.mountSentinelExists).not.toHaveBeenCalled();
     expect(seerrModule.getMediaIdByTmdbId).not.toHaveBeenCalled();
@@ -676,7 +679,6 @@ describe('main application', () => {
     expect(seerrModule.deleteMedia).not.toHaveBeenCalled();
     // First run in DRY_RUN mode still saves bootstrapped state so subsequent runs work correctly
     expect(saveStateSpy).toHaveBeenCalledTimes(1);
-    const savedState = await stateModule.loadState(dataDir);
     expect(savedState?.sources?.[DELETE_URL]?.mode).toBe('delete');
     expect(savedState?.sources?.[DELETE_URL]?.items['16']?.status).toBe('acknowledged');
   });
