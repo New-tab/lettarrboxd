@@ -8,6 +8,7 @@ import {
 import { ListScraper } from './list';
 import { CollectionsScraper } from './collections';
 import { PopularScraper } from './popular';
+import { RssScraper } from './rss';
 
 jest.mock('../util/logger', () => ({
   debug: jest.fn(),
@@ -25,6 +26,7 @@ jest.mock('../util/env', () => ({
 jest.mock('./list');
 jest.mock('./collections');
 jest.mock('./popular');
+jest.mock('./rss');
 
 describe('scraper index', () => {
   beforeEach(() => {
@@ -55,24 +57,29 @@ describe('scraper index', () => {
     expect(getSyncModeForUrl('https://letterboxd.com/user/list/some-list/')).toBe('request');
   });
 
-  it('fetches diary URLs with the list scraper', async () => {
+  it('fetches diary and watched URLs with the RSS scraper', async () => {
     const mockMovies = [
-      { id: 1, name: 'Movie 1', slug: '/film/movie1/', tmdbId: '123', imdbId: null, publishedYear: null },
+      { id: 7345, name: 'There Will Be Blood', slug: '/film/there-will-be-blood/', tmdbId: '7345', imdbId: null, publishedYear: 2007 },
     ];
 
     const mockGetMovies = jest.fn().mockResolvedValue(mockMovies);
-    (ListScraper as jest.Mock).mockImplementation(() => ({
+    (RssScraper as jest.Mock).mockImplementation(() => ({
       getMovies: mockGetMovies,
     }));
 
-    const result = await fetchMoviesFromUrl('https://letterboxd.com/user/films/diary');
+    const diaryResult = await fetchMoviesFromUrl('https://letterboxd.com/user/films/diary');
+    expect(diaryResult).toEqual(mockMovies);
+    expect(RssScraper).toHaveBeenCalledWith('https://letterboxd.com/user/films/diary');
 
-    expect(result).toEqual(mockMovies);
-    expect(ListScraper).toHaveBeenCalledWith(
-      'https://letterboxd.com/user/films/diary',
-      undefined,
-      undefined
-    );
+    jest.clearAllMocks();
+    (RssScraper as jest.Mock).mockImplementation(() => ({
+      getMovies: mockGetMovies,
+    }));
+
+    const watchedResult = await fetchMoviesFromUrl('https://letterboxd.com/user/films/');
+    expect(watchedResult).toEqual(mockMovies);
+    expect(RssScraper).toHaveBeenCalledWith('https://letterboxd.com/user/films/');
+    expect(ListScraper).not.toHaveBeenCalled();
   });
 
   it('still routes collection URLs through the collections scraper', async () => {

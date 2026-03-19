@@ -1,6 +1,7 @@
 import { ListScraper } from './list';
 import { CollectionsScraper } from './collections';
 import { PopularScraper } from './popular';
+import { RssScraper } from './rss';
 import env from '../util/env';
 
 export interface LetterboxdMovie {
@@ -77,15 +78,17 @@ export const fetchMoviesFromUrl = async (url: string): Promise<LetterboxdMovie[]
   }
   
   switch (listType) {
+    case ListType.WATCHED_MOVIES:
+    case ListType.DIARY:
+      // Delete-mode sources use the RSS feed — no Cloudflare issues, TMDB IDs included
+      return new RssScraper(url).getMovies();
+
     case ListType.ACTOR_FILMOGRAPHY:
     case ListType.DIRECTOR_FILMOGRAPHY:
     case ListType.WRITER_FILMOGRAPHY:
     case ListType.WATCHLIST:
     case ListType.REGULAR_LIST:
-    case ListType.WATCHED_MOVIES:
-    case ListType.DIARY:
-      // Filmography pages, lists, and watched movies use the same HTML structure
-      // Determine take parameters from environment variables
+      // Request-mode sources use HTML scraping
       let take: number | undefined = undefined;
       let strategy: 'oldest' | 'newest' | undefined = undefined;
 
