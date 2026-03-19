@@ -12,12 +12,10 @@ import {
   SyncMode,
 } from './scraper';
 import {
-  deleteMovieById,
-  findMovieByTmdbId,
-} from './api/radarr';
-import {
   createMovieRequest,
-  deleteMovieRequestByTmdbId,
+  deleteMedia,
+  deleteMediaFile,
+  getMediaIdByTmdbId,
 } from './api/seerr';
 import { mountSentinelExists } from './util/mount';
 import {
@@ -230,21 +228,21 @@ async function runCleanupPendingItems(state: SyncState): Promise<SyncState> {
       continue;
     }
 
-    if (!item.tmdbId) {
-      nextState.items[key] = markSkipped(item, 'cleanupPending item is missing TMDb ID');
+    if (!item.seerrMediaId) {
+      nextState.items[key] = markSkipped(item, 'cleanupPending item is missing Seerr media ID');
       logger.error(
-        `cleanupPending item ${item.name} is missing a TMDb ID. Marking as skipped for manual review.`
+        `cleanupPending item ${item.name} is missing a Seerr media ID. Marking as skipped for manual review.`
       );
       continue;
     }
 
     try {
-      const result = await deleteMovieRequestByTmdbId(item.tmdbId);
+      const result = await deleteMedia(item.seerrMediaId);
       nextState.items[key] = markAcknowledged(item);
 
       if (result === 'notFound') {
         logger.info(
-          `No matching Seerr request found for cleanupPending item ${item.name}. Marking as acknowledged.`
+          `Seerr media record for cleanupPending item ${item.name} was already gone. Marking as acknowledged.`
         );
       } else {
         logger.info(`Successfully completed Seerr cleanup for ${item.name}.`);
@@ -299,36 +297,33 @@ async function runDeleteMode(
     }
 
     try {
-      const radarrMovie = await findMovieByTmdbId(movie.tmdbId);
-      if (!radarrMovie) {
-        nextState.items[key] = applyBoundedRetryFailure(
-          item,
-          `No Radarr movie found for TMDb ${movie.tmdbId}`,
-          'Per-item failure (Radarr match missing)'
+      const mediaId = await getMediaIdByTmdbId(movie.tmdbId);
+      if (!mediaId) {
+        logger.info(
+          `${movie.name} (TMDb: ${movie.tmdbId}) is not tracked in Seerr. Marking as acknowledged.`
         );
+        nextState.items[key] = markAcknowledged(item);
         continue;
       }
 
-      await deleteMovieById(radarrMovie.id);
-      logger.info(
-        `Successfully deleted ${movie.name} from Radarr first. Proceeding to Seerr cleanup.`
-      );
+      await deleteMediaFile(mediaId);
+      logger.info(`Successfully deleted ${movie.name} from Radarr via Seerr.`);
 
       try {
-        const cleanupResult = await deleteMovieRequestByTmdbId(movie.tmdbId);
+        const cleanupResult = await deleteMedia(mediaId);
         nextState.items[key] = markAcknowledged(item);
 
         if (cleanupResult === 'notFound') {
           logger.info(
-            `No matching Seerr request found for ${movie.name} after Radarr delete. Marking as acknowledged.`
+            `Seerr media record for ${movie.name} was already gone. Marking as acknowledged.`
           );
         } else {
-          logger.info(`Successfully deleted matching Seerr request for ${movie.name}.`);
+          logger.info(`Successfully removed ${movie.name} from Seerr.`);
         }
       } catch (error) {
-        nextState.items[key] = markCleanupPending(item, formatError(error));
+        nextState.items[key] = markCleanupPending(item, formatError(error), mediaId);
         logger.error(
-          `Radarr delete succeeded for ${movie.name}, but Seerr cleanup failed. Marking item cleanupPending. ${formatError(error)}`
+          `Radarr delete succeeded for ${movie.name}, but Seerr record cleanup failed. Marking item cleanupPending. ${formatError(error)}`
         );
       }
     } catch (error) {

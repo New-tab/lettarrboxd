@@ -3,6 +3,7 @@ import env from '../util/env';
 
 export type CreateMovieRequestResult = 'created' | 'alreadyExists';
 export type DeleteMovieRequestResult = 'deleted' | 'notFound';
+export type DeleteMediaResult = 'deleted' | 'notFound';
 
 interface SeerrRequestListResponse {
   results?: any[];
@@ -105,6 +106,48 @@ export async function findMovieRequestIdByTmdbId(
     }
 
     skip += results.length;
+  }
+}
+
+export async function getMediaIdByTmdbId(
+  tmdbId: number | string
+): Promise<number | null> {
+  ensureSeerrConfigured();
+  try {
+    const response = await axios.get(`/api/v1/movie/${Number(tmdbId)}`);
+    const mediaId = response.data?.mediaInfo?.id;
+    return typeof mediaId === 'number' ? mediaId : null;
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function deleteMediaFile(mediaId: number): Promise<DeleteMediaResult> {
+  ensureSeerrConfigured();
+  try {
+    await axios.delete(`/api/v1/media/${mediaId}/file`);
+    return 'deleted';
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      return 'notFound';
+    }
+    throw error;
+  }
+}
+
+export async function deleteMedia(mediaId: number): Promise<DeleteMediaResult> {
+  ensureSeerrConfigured();
+  try {
+    await axios.delete(`/api/v1/media/${mediaId}`);
+    return 'deleted';
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      return 'notFound';
+    }
+    throw error;
   }
 }
 

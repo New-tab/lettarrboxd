@@ -20,8 +20,11 @@ jest.mock('../util/env', () => ({
 
 import {
   createMovieRequest,
+  deleteMedia,
+  deleteMediaFile,
   deleteMovieRequestByTmdbId,
   findMovieRequestIdByTmdbId,
+  getMediaIdByTmdbId,
 } from './seerr';
 
 describe('seerr API', () => {
@@ -101,5 +104,72 @@ describe('seerr API', () => {
 
     expect(result).toBe('notFound');
     expect(mockAxiosInstance.delete).not.toHaveBeenCalled();
+  });
+
+  describe('getMediaIdByTmdbId', () => {
+    it('returns the Seerr mediaInfo id for a known TMDB id', async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { mediaInfo: { id: 42 } },
+      });
+
+      const result = await getMediaIdByTmdbId('12345');
+
+      expect(result).toBe(42);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/v1/movie/12345');
+    });
+
+    it('returns null when movie has no mediaInfo', async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: {} });
+
+      const result = await getMediaIdByTmdbId('12345');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null on 404', async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({ response: { status: 404 } });
+
+      const result = await getMediaIdByTmdbId('12345');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('deleteMediaFile', () => {
+    it('returns deleted on success', async () => {
+      mockAxiosInstance.delete.mockResolvedValueOnce({});
+
+      const result = await deleteMediaFile(42);
+
+      expect(result).toBe('deleted');
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/api/v1/media/42/file');
+    });
+
+    it('returns notFound on 404', async () => {
+      mockAxiosInstance.delete.mockRejectedValueOnce({ response: { status: 404 } });
+
+      const result = await deleteMediaFile(42);
+
+      expect(result).toBe('notFound');
+    });
+  });
+
+  describe('deleteMedia', () => {
+    it('returns deleted on success', async () => {
+      mockAxiosInstance.delete.mockResolvedValueOnce({});
+
+      const result = await deleteMedia(42);
+
+      expect(result).toBe('deleted');
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/api/v1/media/42');
+    });
+
+    it('returns notFound on 404', async () => {
+      mockAxiosInstance.delete.mockRejectedValueOnce({ response: { status: 404 } });
+
+      const result = await deleteMedia(42);
+
+      expect(result).toBe('notFound');
+    });
   });
 });

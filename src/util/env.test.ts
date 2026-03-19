@@ -32,12 +32,7 @@ describe('env', () => {
     expect(env.CHECK_INTERVAL_MINUTES).toBe(15);
   });
 
-  it('requires Radarr credentials for watched sources', () => {
-    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
-    const mockConsoleError = jest.spyOn(console, 'error').mockImplementation();
-
+  it('allows delete-mode sources without Radarr credentials', () => {
     process.env = {
       NODE_ENV: 'test',
       LETTERBOXD_URL: 'https://letterboxd.com/user/films',
@@ -45,14 +40,9 @@ describe('env', () => {
       SEERR_API_KEY: 'seerr-key',
     };
 
-    expect(() => {
-      jest.isolateModules(() => {
-        require('./env');
-      });
-    }).toThrow('process.exit called');
-
-    mockExit.mockRestore();
-    mockConsoleError.mockRestore();
+    const env = require('./env').default;
+    expect(env.RADARR_API_URL).toBeUndefined();
+    expect(env.RADARR_API_KEY).toBeUndefined();
   });
 
   it('allows request-mode sources without Radarr credentials', () => {

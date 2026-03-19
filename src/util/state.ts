@@ -17,6 +17,7 @@ export interface SyncStateItem {
   name: string;
   slug: string;
   tmdbId?: string | null;
+  seerrMediaId?: number | null;
   firstSeenAt: string;
   lastSeenAt: string;
   retryCount: number;
@@ -106,12 +107,14 @@ export function markAcknowledged(item: SyncStateItem): SyncStateItem {
 
 export function markCleanupPending(
   item: SyncStateItem,
-  errorMessage: string
+  errorMessage: string,
+  seerrMediaId?: number
 ): SyncStateItem {
   return {
     ...item,
     status: 'cleanupPending',
     lastError: errorMessage,
+    seerrMediaId: seerrMediaId ?? item.seerrMediaId ?? null,
   };
 }
 

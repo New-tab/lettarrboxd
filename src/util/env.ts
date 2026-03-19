@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-const DELETE_MODE_URL_PATTERN = /^https:\/\/letterboxd\.com\/[^\/]+\/(films(\/diary)?|diary)\/?$/;
-
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
@@ -40,26 +38,6 @@ const envSchema = z.object({
 }, {
   message: "When using movie limiting, both LETTERBOXD_TAKE_AMOUNT and LETTERBOXD_TAKE_STRATEGY must be specified",
   path: ["LETTERBOXD_TAKE_AMOUNT", "LETTERBOXD_TAKE_STRATEGY"]
-}).superRefine((data, ctx) => {
-  if (!DELETE_MODE_URL_PATTERN.test(data.LETTERBOXD_URL)) {
-    return;
-  }
-
-  if (!data.RADARR_API_URL) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['RADARR_API_URL'],
-      message: 'RADARR_API_URL is required when LETTERBOXD_URL is a watched/diary source',
-    });
-  }
-
-  if (!data.RADARR_API_KEY) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['RADARR_API_KEY'],
-      message: 'RADARR_API_KEY is required when LETTERBOXD_URL is a watched/diary source',
-    });
-  }
 });
 
 export type Env = z.infer<typeof envSchema>;

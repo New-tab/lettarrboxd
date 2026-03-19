@@ -19,14 +19,11 @@ jest.mock('./scraper', () => ({
   getSyncModeForListType: jest.fn(),
 }));
 
-jest.mock('./api/radarr', () => ({
-  findMovieByTmdbId: jest.fn(),
-  deleteMovieById: jest.fn(),
-}));
-
 jest.mock('./api/seerr', () => ({
   createMovieRequest: jest.fn(),
-  deleteMovieRequestByTmdbId: jest.fn(),
+  getMediaIdByTmdbId: jest.fn(),
+  deleteMediaFile: jest.fn(),
+  deleteMedia: jest.fn(),
 }));
 
 jest.mock('./util/mount', () => ({
@@ -40,7 +37,6 @@ describe('main application', () => {
   let saveStateSpy: jest.SpyInstance;
   let startScheduledMonitoring: () => void;
   let scraperModule: any;
-  let radarrModule: any;
   let seerrModule: any;
   let mountModule: any;
   let stateModule: any;
@@ -70,6 +66,7 @@ describe('main application', () => {
       name: string;
       slug: string;
       tmdbId: string | null;
+      seerrMediaId: number | null;
       retryCount: number;
       status: 'pending' | 'cleanupPending' | 'acknowledged' | 'skipped';
       lastError: string | null;
@@ -79,6 +76,7 @@ describe('main application', () => {
     name: 'Movie 1',
     slug: '/film/movie-1/',
     tmdbId: '123',
+    seerrMediaId: null,
     firstSeenAt: '2026-01-01T00:00:00.000Z',
     lastSeenAt: '2026-01-01T00:00:00.000Z',
     retryCount: 0,
@@ -116,7 +114,6 @@ describe('main application', () => {
 
   function loadModules(): void {
     scraperModule = require('./scraper');
-    radarrModule = require('./api/radarr');
     seerrModule = require('./api/seerr');
     mountModule = require('./util/mount');
     stateModule = require('./util/state');
@@ -145,8 +142,6 @@ describe('main application', () => {
       LETTERBOXD_URL: 'https://letterboxd.com/user/watchlist',
       SEERR_API_URL: 'http://localhost:5055',
       SEERR_API_KEY: 'seerr-key',
-      RADARR_API_URL: 'http://localhost:7878',
-      RADARR_API_KEY: 'radarr-key',
       DATA_DIR: dataDir,
       CHECK_INTERVAL_MINUTES: '10',
       DRY_RUN: 'false',
@@ -253,9 +248,9 @@ describe('main application', () => {
       state.items['9']?.status === 'acknowledged'
     ));
 
-    expect(radarrModule.findMovieByTmdbId).not.toHaveBeenCalled();
-    expect(radarrModule.deleteMovieById).not.toHaveBeenCalled();
-    expect(seerrModule.deleteMovieRequestByTmdbId).not.toHaveBeenCalled();
+    expect(seerrModule.getMediaIdByTmdbId).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMedia).not.toHaveBeenCalled();
     expect(savedState).toEqual(
       expect.objectContaining({
         mode: 'delete',
@@ -305,9 +300,9 @@ describe('main application', () => {
     ));
 
     expect(mountModule.mountSentinelExists).toHaveBeenCalledWith('/mnt/media/.MOUNT_OK');
-    expect(radarrModule.findMovieByTmdbId).not.toHaveBeenCalled();
-    expect(radarrModule.deleteMovieById).not.toHaveBeenCalled();
-    expect(seerrModule.deleteMovieRequestByTmdbId).not.toHaveBeenCalled();
+    expect(seerrModule.getMediaIdByTmdbId).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMedia).not.toHaveBeenCalled();
     expect(savedState.items['5']).toEqual(
       expect.objectContaining({
         status: 'pending',
@@ -317,7 +312,7 @@ describe('main application', () => {
     );
   });
 
-  it('deletes from Radarr before Seerr cleanup', async () => {
+  it('deletes from Radarr via Seerr and removes Seerr record', async () => {
     setDeleteMode();
     loadModules();
 
@@ -345,27 +340,23 @@ describe('main application', () => {
     });
     saveStateSpy.mockClear();
     mountModule.mountSentinelExists.mockResolvedValue(true);
-    radarrModule.findMovieByTmdbId.mockResolvedValue({
-      id: 77,
-      title: 'Delete Me',
-      tmdbId: 777,
-    });
-    radarrModule.deleteMovieById.mockResolvedValue('deleted');
-    seerrModule.deleteMovieRequestByTmdbId.mockResolvedValue('deleted');
+    seerrModule.getMediaIdByTmdbId.mockResolvedValue(42);
+    seerrModule.deleteMediaFile.mockResolvedValue('deleted');
+    seerrModule.deleteMedia.mockResolvedValue('deleted');
 
     startScheduledMonitoring();
     const savedState = await waitForState(state => (
       state.items['7']?.status === 'acknowledged'
     ));
 
-    expect(radarrModule.findMovieByTmdbId).toHaveBeenCalledWith('777');
-    expect(radarrModule.deleteMovieById).toHaveBeenCalledWith(77);
-    expect(seerrModule.deleteMovieRequestByTmdbId).toHaveBeenCalledWith('777');
-    expect(radarrModule.findMovieByTmdbId.mock.invocationCallOrder[0]).toBeLessThan(
-      radarrModule.deleteMovieById.mock.invocationCallOrder[0]
+    expect(seerrModule.getMediaIdByTmdbId).toHaveBeenCalledWith('777');
+    expect(seerrModule.deleteMediaFile).toHaveBeenCalledWith(42);
+    expect(seerrModule.deleteMedia).toHaveBeenCalledWith(42);
+    expect(seerrModule.getMediaIdByTmdbId.mock.invocationCallOrder[0]).toBeLessThan(
+      seerrModule.deleteMediaFile.mock.invocationCallOrder[0]
     );
-    expect(radarrModule.deleteMovieById.mock.invocationCallOrder[0]).toBeLessThan(
-      seerrModule.deleteMovieRequestByTmdbId.mock.invocationCallOrder[0]
+    expect(seerrModule.deleteMediaFile.mock.invocationCallOrder[0]).toBeLessThan(
+      seerrModule.deleteMedia.mock.invocationCallOrder[0]
     );
     expect(savedState.items['7']).toEqual(
       expect.objectContaining({
@@ -375,7 +366,49 @@ describe('main application', () => {
     );
   });
 
-  it('marks items cleanupPending when Radarr succeeds and Seerr cleanup fails', async () => {
+  it('marks as acknowledged when movie is not tracked in Seerr', async () => {
+    setDeleteMode();
+    loadModules();
+
+    scraperModule.detectListType.mockReturnValue('watched_movies');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
+      createMovie({
+        id: 7,
+        name: 'Not In Seerr',
+        slug: '/film/not-in-seerr/',
+        tmdbId: '777',
+      }),
+    ]);
+    await stateModule.saveState(dataDir, {
+      version: 1,
+      mode: 'delete',
+      items: {
+        '7': createSavedItem({
+          id: 7,
+          name: 'Not In Seerr',
+          slug: '/film/not-in-seerr/',
+          tmdbId: '777',
+        }),
+      },
+    });
+    saveStateSpy.mockClear();
+    mountModule.mountSentinelExists.mockResolvedValue(true);
+    seerrModule.getMediaIdByTmdbId.mockResolvedValue(null);
+
+    startScheduledMonitoring();
+    const savedState = await waitForState(state => (
+      state.items['7']?.status === 'acknowledged'
+    ));
+
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMedia).not.toHaveBeenCalled();
+    expect(savedState.items['7']).toEqual(
+      expect.objectContaining({ status: 'acknowledged' })
+    );
+  });
+
+  it('marks items cleanupPending when deleteMediaFile succeeds but deleteMedia fails', async () => {
     setDeleteMode();
     loadModules();
 
@@ -403,15 +436,9 @@ describe('main application', () => {
     });
     saveStateSpy.mockClear();
     mountModule.mountSentinelExists.mockResolvedValue(true);
-    radarrModule.findMovieByTmdbId.mockResolvedValue({
-      id: 77,
-      title: 'Delete Me',
-      tmdbId: 777,
-    });
-    radarrModule.deleteMovieById.mockResolvedValue('deleted');
-    seerrModule.deleteMovieRequestByTmdbId.mockRejectedValue(
-      new Error('Seerr unavailable')
-    );
+    seerrModule.getMediaIdByTmdbId.mockResolvedValue(42);
+    seerrModule.deleteMediaFile.mockResolvedValue('deleted');
+    seerrModule.deleteMedia.mockRejectedValue(new Error('Seerr unavailable'));
 
     startScheduledMonitoring();
     const savedState = await waitForState(state => (
@@ -421,12 +448,13 @@ describe('main application', () => {
     expect(savedState.items['7']).toEqual(
       expect.objectContaining({
         status: 'cleanupPending',
+        seerrMediaId: 42,
         lastError: 'Seerr unavailable',
       })
     );
   });
 
-  it('retries cleanupPending items from state even when absent from the current source', async () => {
+  it('retries cleanupPending items using stored seerrMediaId', async () => {
     setDeleteMode('https://letterboxd.com/user/films/diary');
     loadModules();
 
@@ -442,21 +470,22 @@ describe('main application', () => {
           name: 'Cleanup Only',
           slug: '/film/cleanup-only/',
           tmdbId: '888',
+          seerrMediaId: 99,
           status: 'cleanupPending',
           lastError: 'Temporary Seerr outage',
         }),
       },
     });
     saveStateSpy.mockClear();
-    seerrModule.deleteMovieRequestByTmdbId.mockResolvedValue('deleted');
+    seerrModule.deleteMedia.mockResolvedValue('deleted');
 
     startScheduledMonitoring();
     const savedState = await waitForState(state => (
       state.items['8']?.status === 'acknowledged'
     ));
 
-    expect(seerrModule.deleteMovieRequestByTmdbId).toHaveBeenCalledWith('888');
-    expect(radarrModule.deleteMovieById).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMedia).toHaveBeenCalledWith(99);
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
     expect(savedState.items['8']).toEqual(
       expect.objectContaining({
         status: 'acknowledged',
@@ -510,53 +539,6 @@ describe('main application', () => {
     );
   });
 
-  it('caps Radarr-miss retries at three attempts', async () => {
-    setDeleteMode();
-    loadModules();
-
-    scraperModule.detectListType.mockReturnValue('watched_movies');
-    scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
-      createMovie({
-        id: 12,
-        name: 'Radarr Miss',
-        slug: '/film/radarr-miss/',
-        tmdbId: '404',
-      }),
-    ]);
-    await stateModule.saveState(dataDir, {
-      version: 1,
-      mode: 'delete',
-      items: {
-        '12': createSavedItem({
-          id: 12,
-          name: 'Radarr Miss',
-          slug: '/film/radarr-miss/',
-          tmdbId: '404',
-          retryCount: 2,
-        }),
-      },
-    });
-    saveStateSpy.mockClear();
-    mountModule.mountSentinelExists.mockResolvedValue(true);
-    radarrModule.findMovieByTmdbId.mockResolvedValue(null);
-
-    startScheduledMonitoring();
-    const savedState = await waitForState(state => (
-      state.items['12']?.status === 'skipped' &&
-      state.items['12']?.retryCount === 3
-    ));
-
-    expect(radarrModule.deleteMovieById).not.toHaveBeenCalled();
-    expect(savedState.items['12']).toEqual(
-      expect.objectContaining({
-        status: 'skipped',
-        retryCount: 3,
-        lastError: 'No Radarr movie found for TMDb 404',
-      })
-    );
-  });
-
   it('keeps transient Seerr request failures uncapped and retryable', async () => {
     setRequestMode();
     loadModules();
@@ -604,7 +586,7 @@ describe('main application', () => {
     );
   });
 
-  it('does not attempt Seerr cleanup when deleteMovieById throws a transient error', async () => {
+  it('does not attempt deleteMedia cleanup when deleteMediaFile throws a transient error', async () => {
     setDeleteMode();
     loadModules();
 
@@ -632,31 +614,27 @@ describe('main application', () => {
     });
     saveStateSpy.mockClear();
     mountModule.mountSentinelExists.mockResolvedValue(true);
-    radarrModule.findMovieByTmdbId.mockResolvedValue({
-      id: 88,
-      title: 'Delete Transient',
-      tmdbId: 202,
-    });
-    radarrModule.deleteMovieById.mockRejectedValue({
+    seerrModule.getMediaIdByTmdbId.mockResolvedValue(88);
+    seerrModule.deleteMediaFile.mockRejectedValue({
       isAxiosError: true,
-      message: 'Radarr delete failed transiently',
+      message: 'Seerr delete failed transiently',
     });
 
     startScheduledMonitoring();
     const savedState = await waitForState(state => (
-      state.items['20']?.lastError === 'Radarr delete failed transiently'
+      state.items['20']?.lastError === 'Seerr delete failed transiently'
     ));
 
-    expect(seerrModule.deleteMovieRequestByTmdbId).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMedia).not.toHaveBeenCalled();
     expect(savedState.items['20']).toEqual(
       expect.objectContaining({
         status: 'pending',
-        lastError: 'Radarr delete failed transiently',
+        lastError: 'Seerr delete failed transiently',
       })
     );
   });
 
-  it('keeps transient Radarr failures uncapped and retryable', async () => {
+  it('keeps transient deleteMediaFile failures uncapped and retryable', async () => {
     setDeleteMode();
     loadModules();
 
@@ -685,23 +663,23 @@ describe('main application', () => {
     });
     saveStateSpy.mockClear();
     mountModule.mountSentinelExists.mockResolvedValue(true);
-    radarrModule.findMovieByTmdbId.mockRejectedValue({
+    seerrModule.getMediaIdByTmdbId.mockResolvedValue(55);
+    seerrModule.deleteMediaFile.mockRejectedValue({
       isAxiosError: true,
-      message: 'Radarr temporarily unavailable',
+      message: 'Seerr temporarily unavailable',
     });
 
     startScheduledMonitoring();
     const savedState = await waitForState(state => (
-      state.items['14']?.lastError === 'Radarr temporarily unavailable'
+      state.items['14']?.lastError === 'Seerr temporarily unavailable'
     ));
 
-    expect(radarrModule.deleteMovieById).not.toHaveBeenCalled();
-    expect(seerrModule.deleteMovieRequestByTmdbId).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMedia).not.toHaveBeenCalled();
     expect(savedState.items['14']).toEqual(
       expect.objectContaining({
         status: 'pending',
         retryCount: 2,
-        lastError: 'Radarr temporarily unavailable',
+        lastError: 'Seerr temporarily unavailable',
       })
     );
   });
@@ -725,7 +703,7 @@ describe('main application', () => {
     await flushAsyncWork();
 
     expect(seerrModule.createMovieRequest).not.toHaveBeenCalled();
-    expect(radarrModule.deleteMovieById).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
     expect(saveStateSpy).not.toHaveBeenCalled();
     expect(await stateModule.loadState(dataDir)).toBeNull();
   });
@@ -750,9 +728,9 @@ describe('main application', () => {
     await flushAsyncWork();
 
     expect(mountModule.mountSentinelExists).not.toHaveBeenCalled();
-    expect(radarrModule.findMovieByTmdbId).not.toHaveBeenCalled();
-    expect(radarrModule.deleteMovieById).not.toHaveBeenCalled();
-    expect(seerrModule.deleteMovieRequestByTmdbId).not.toHaveBeenCalled();
+    expect(seerrModule.getMediaIdByTmdbId).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
+    expect(seerrModule.deleteMedia).not.toHaveBeenCalled();
     // First run in DRY_RUN mode still saves bootstrapped state so subsequent runs work correctly
     expect(saveStateSpy).toHaveBeenCalledTimes(1);
     const savedState = await stateModule.loadState(dataDir);
