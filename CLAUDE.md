@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Lettarrboxd monitors one or more Letterboxd sources on a schedule and syncs them into a Seerr-centered movie workflow. Each URL operates in one of two modes:
+Seerrboxd monitors one or more Letterboxd sources on a schedule and syncs them into a Seerr-centered movie workflow. Each URL operates in one of two modes:
 
 - **Request mode** (watchlist, lists, filmographies): creates Seerr movie requests.
 - **Delete mode** (diary URL only): deletes movies from Radarr via Seerr, then removes the Seerr media record. Use `/diary/` — not `/films/`. Delete mode uses the Letterboxd RSS feed; `/films/` is not supported.

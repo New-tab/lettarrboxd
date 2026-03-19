@@ -1,50 +1,54 @@
-# Lettarrboxd
+# Seerrboxd
 
-Sync a single Letterboxd source into a Seerr-centered movie workflow.
+Monitor one or more Letterboxd sources on a schedule and sync them into a Seerr-centered movie workflow.
 
 ## Overview
 
-The runtime has two modes, determined by `LETTERBOXD_URL`:
+Each configured URL operates in one of two modes:
 
 - **Request mode** (watchlist, lists, filmographies): creates Seerr movie requests.
-- **Delete mode** (diary URL): when a film appears in your diary, deletes it from Radarr via Seerr, then removes the Seerr media record.
-<!--
-> **Why diary and not `/films/`?**
-> Letterboxd's `/films/` page shows your full watch history, but it's Cloudflare-protected and requires a headless browser (FlareSolverr) to scrape — too resource-intensive for frequent polling. Delete mode uses Letterboxd's RSS feed instead, which is lightweight, supports ETag caching (skips unchanged feeds entirely), and is perfectly suited to diary entries. If you log your watches to your diary, use `https://letterboxd.com/username/diary/` as your `LETTERBOXD_URL`. -->
+- **Delete mode** (diary URL only): when a film appears in your diary, deletes it from Radarr via Seerr, then removes the Seerr media record.
 
-<!-- ## Confirmed Runtime Behavior
+> **Why diary and not `/films/`?**
+> Letterboxd's `/films/` page shows your full watch history, but it's Cloudflare-protected and requires a headless browser (FlareSolverr) to scrape — too resource-intensive for frequent polling. Delete mode uses Letterboxd's RSS feed instead, which is lightweight and perfectly suited to diary entries. If you log your watches to your diary, use `https://letterboxd.com/username/diary/` as your delete-mode URL.
+
+Run a single container with multiple URLs — request mode and delete mode can coexist safely in one instance.
+
+## Confirmed Runtime Behavior
 
 - Watchlists create Seerr requests; no direct Radarr interaction.
 - Diary entries run in delete mode: `DELETE /media/{id}/file` (removes from Radarr), then `DELETE /media/{id}` (removes Seerr record).
 - Delete mode first run bootstraps all existing diary entries as acknowledged without deleting anything.
 - Destructive deletes are blocked unless the mount sentinel exists at `MEDIA_MOUNT_SENTINEL` (default `/mnt/media/.MOUNT_OK`).
 - State is persisted in `DATA_DIR/sync-state.json`.
-- Run one container per Letterboxd source, each with its own `DATA_DIR`.
-- `DRY_RUN=true` performs no API mutations and does not persist state. -->
+- `DRY_RUN=true` skips all API mutations. On the first delete-mode run, bootstrap state is still saved so subsequent runs work correctly.
 
-## Documented v1 Sources
+## Supported URL Types
 
 | URL pattern | Mode |
 |-------------|------|
 | `https://letterboxd.com/username/watchlist/` | Request |
-| `https://letterboxd.com/username/diary/` | Delete (recommended) |
+| `https://letterboxd.com/username/diary/` | Delete |
 | `https://letterboxd.com/username/list/list-name/` | Request |
-
-Additional recognized URL types (outside the primary v1 workflow):
-
-- Collections: `https://letterboxd.com/films/in/collection-name/`
-- Popular movies: `https://letterboxd.com/films/popular/`
-- Actor filmography: `https://letterboxd.com/actor/actor-name/`
-- Director filmography: `https://letterboxd.com/director/director-name/`
-- Writer filmography: `https://letterboxd.com/writer/writer-name/`
+| `https://letterboxd.com/films/in/collection-name/` | Request |
+| `https://letterboxd.com/films/popular/` | Request |
+| `https://letterboxd.com/actor/actor-name/` | Request |
+| `https://letterboxd.com/director/director-name/` | Request |
+| `https://letterboxd.com/writer/writer-name/` | Request |
 
 ## Environment
 
-### Required
+### Required (exactly one)
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `LETTERBOXD_URL` | Letterboxd source URL | `https://letterboxd.com/username/diary/` |
+| `LETTERBOXD_URLS` | Comma-separated list of Letterboxd source URLs | `https://letterboxd.com/username/watchlist/,https://letterboxd.com/username/diary/` |
+| `LETTERBOXD_URL` | Single URL (backward-compatible) | `https://letterboxd.com/username/watchlist/` |
+
+### Always required
+
+| Variable | Description | Example |
+|----------|-------------|---------|
 | `SEERR_API_URL` | Seerr base URL | `http://seerr:5055` |
 | `SEERR_API_KEY` | Seerr API key (must have ADMIN + MANAGE_REQUESTS) | `your_seerr_api_key` |
 
@@ -52,7 +56,8 @@ Additional recognized URL types (outside the primary v1 workflow):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHECK_INTERVAL_MINUTES` | `10` | Poll interval in minutes (minimum 1) |
+| `PORT` | `3000` | Status/control server port |
+| `CHECK_INTERVAL_MINUTES` | `10` | Poll interval in minutes (minimum 10) |
 | `DATA_DIR` | `/data` | Directory for `sync-state.json` |
 | `MEDIA_MOUNT_SENTINEL` | `/mnt/media/.MOUNT_OK` | Path that must exist before delete-mode mutations run |
 | `DRY_RUN` | `false` | Log intended actions without mutating services or state |
@@ -61,59 +66,50 @@ Additional recognized URL types (outside the primary v1 workflow):
 | `LETTERBOXD_TAKE_AMOUNT` | - | Limit movies processed per run; must be set with `LETTERBOXD_TAKE_STRATEGY` |
 | `LETTERBOXD_TAKE_STRATEGY` | - | `newest` or `oldest`; must be set with `LETTERBOXD_TAKE_AMOUNT` |
 
+## Status & Control Server
+
+Seerrboxd runs a small HTTP server on `PORT` (default 3000).
+
+- `GET /status` — returns per-source item counts, mode, and etag
+- `POST /sync` — triggers an immediate sync (returns 202, or 409 if already running)
+
 ## Docker
 
-### Watchlist request-mode instance
+### Single container, multiple sources (recommended)
 
 ```bash
 docker run -d \
-  --name seerrboxd-watchlist \
-  -e LETTERBOXD_URL=https://letterboxd.com/username/watchlist/ \
-  -e SEERR_API_URL=http://seerr:5055 \
-  -e SEERR_API_KEY=your_seerr_api_key \
-  -e CHECK_INTERVAL_MINUTES=60 \
-  -v ./data/watchlist:/data \
-  ghcr.io/New-tab/seerrboxd:latest
-```
-
-### Diary delete-mode instance
-
-```bash
-docker run -d \
-  --name seerrboxd-diary \
-  -e LETTERBOXD_URL=https://letterboxd.com/username/diary/ \
+  --name seerrboxd \
+  -e LETTERBOXD_URLS=https://letterboxd.com/username/watchlist/,https://letterboxd.com/username/diary/ \
   -e SEERR_API_URL=http://seerr:5055 \
   -e SEERR_API_KEY=your_seerr_api_key \
   -e MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK \
-  -e CHECK_INTERVAL_MINUTES=5 \
-  -v ./data/diary:/data \
-  ghcr.io/New-tab/seerrboxd:latest
+  -e CHECK_INTERVAL_MINUTES=10 \
+  -v ./data:/data \
+  -v /mnt/media:/mnt/media:ro \
+  cluelessidiot1/seerrboxd:latest
 ```
 
-### Docker Compose (both modes)
+### Docker Compose
 
 ```yaml
 services:
-  seerrboxd-watchlist:
-    image: ghcr.io/New-tab/seerrboxd:latest
+  seerrboxd:
+    image: cluelessidiot1/seerrboxd:latest
+    container_name: seerrboxd
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
     environment:
-      - LETTERBOXD_URL=https://letterboxd.com/username/watchlist/
+      - LETTERBOXD_URLS=https://letterboxd.com/username/watchlist/,https://letterboxd.com/username/diary/
       - SEERR_API_URL=http://seerr:5055
       - SEERR_API_KEY=your_seerr_api_key
-      - CHECK_INTERVAL_MINUTES=60
-    volumes:
-      - ./data/watchlist:/data
-
-  seerrboxd-diary:
-    image: ghcr.io/New-tab/seerrboxd:latest
-    environment:
-      - LETTERBOXD_URL=https://letterboxd.com/username/diary/
-      - SEERR_API_URL=http://seerr:5055
-      - SEERR_API_KEY=your_seerr_api_key
+      - CHECK_INTERVAL_MINUTES=10
       - MEDIA_MOUNT_SENTINEL=/mnt/media/.MOUNT_OK
-      - CHECK_INTERVAL_MINUTES=5
+      - DATA_DIR=/data
     volumes:
-      - ./data/diary:/data
+      - ./data:/data
+      - /mnt/media:/mnt/media:ro
 ```
 
 ## Development
