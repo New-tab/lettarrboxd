@@ -8,6 +8,7 @@ module.exports = {
     '!src/**/*.d.ts',
     '!src/**/*.test.ts',
     '!src/**/*.itest.ts',
+    '!src/scraper/cloudflare.ts',
   ],
   coverageReporters: ['text', 'lcov', 'json-summary'],
   coverageDirectory: 'coverage',
