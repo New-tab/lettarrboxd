@@ -40,13 +40,15 @@ ENV DATA_DIR=/data
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S seerrboxd && \
-    adduser -S seerrboxd -u 1001 -G seerrboxd
+    adduser -S seerrboxd -u 1001 -G seerrboxd && \
+    apk add --no-cache su-exec
 
-# Change ownership of app and data directories
-RUN chown -R seerrboxd:seerrboxd /app /data
+# Fix ownership of app directory
+RUN chown -R seerrboxd:seerrboxd /app
 
-# Switch to non-root user
-USER seerrboxd
+# Copy and enable entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Expose port (optional, for health checks)
 EXPOSE 3000
@@ -55,5 +57,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=5m --timeout=30s --start-period=5s --retries=3 \
   CMD node -e "console.log('Health check passed')" || exit 1
 
-# Start the application
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "dist/index.js"]
