@@ -1,5 +1,5 @@
-# Build stage
-FROM node:20-alpine AS builder
+# Build stage — runs natively on the CI runner to avoid QEMU/yarn issues
+FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
 
 # Set working directory
 WORKDIR /app
