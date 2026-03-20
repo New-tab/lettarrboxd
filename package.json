@@ -1,6 +1,6 @@
 {
   "name": "seerrboxd",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "main": "dist/index.js",
   "repository": "git@github.com:New-tab/seerrboxd.git",
   "author": "New-tab",
