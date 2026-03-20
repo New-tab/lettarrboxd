@@ -130,13 +130,16 @@ function upsertStateWithCurrentMovies(
     }
 
     if (item.status === 'acknowledged' || item.status === 'skipped') {
-      // Delete-mode: always retain terminal items (we need to remember what was deleted
-      // to avoid re-deleting on every tick, and cleanup-pending retry needs them too).
+      // Delete-mode: retain as a tombstone only when the item is absent from the current
+      // feed (prevents re-deletion on every tick). If the movie re-appears in the diary
+      // RSS, the user has re-logged it and wants it deleted again — reset to pending.
       // Request-mode: only retain while the movie is still in the current feed. If it
       // leaves the list and is re-added later (e.g., deleted from Radarr via diary and
       // then re-added to watchlist), it should start fresh as pending so it gets
       // re-requested.
-      if (mode === 'delete' || currentMovieKeys.has(key)) {
+      if (mode === 'delete' && currentMovieKeys.has(key)) {
+        nextItems[key] = { ...item, status: 'pending', retryCount: 0, lastError: null };
+      } else if (mode === 'delete' || currentMovieKeys.has(key)) {
         nextItems[key] = { ...item };
       }
       continue;

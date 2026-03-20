@@ -599,8 +599,12 @@
         const status = pill.dataset.status;
         if (!activeFilters[url]) activeFilters[url] = new Set();
         const filters = activeFilters[url];
-        if (filters.has(status)) { filters.delete(status); pill.classList.remove('active'); }
-        else { filters.add(status); pill.classList.add('active'); }
+        const isActive = filters.has(status);
+        // Clear all pills for this source first
+        filters.clear();
+        document.querySelectorAll(`.count-pill[data-url="${CSS.escape(url)}"]`).forEach(p => p.classList.remove('active'));
+        // Toggle: re-add if it wasn't already active
+        if (!isActive) { filters.add(status); pill.classList.add('active'); }
         applyFilters(url);
       });
     });
@@ -719,65 +723,65 @@
       </div>`;
     }).join('');
 
-    // Skip buttons
-    container.querySelectorAll('.skip-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          const sourceUrl = btn.dataset.url;
-          const itemId = btn.dataset.id;
-          const res = await fetch(
-            '/sources/' + encodeURIComponent(sourceUrl) + '/items/' + itemId + '/skip',
-            { method: 'POST' }
-          );
-          const body = await res.json();
-          if (res.ok) {
-            showToast('Item skipped');
-            const card = btn.closest('.source-card');
-            if (card) loadSourceItems(card.dataset.url, card.dataset.mode, card.querySelector('.items-list'));
-          } else {
-            showToast(body.error || 'Skip failed');
-            btn.disabled = false;
-          }
-        } catch (e) {
-          showToast('Skip failed');
-          btn.disabled = false;
-        }
-      });
-    });
+    // Delegated handler — covers both initial buttons and optimistic replacements
+    container.addEventListener('click', async e => {
+      const btn = e.target.closest('.skip-btn, .requeue-btn');
+      if (!btn || btn.disabled) return;
+      btn.disabled = true;
 
-    // Apply any active filters/search to freshly rendered rows
-    applyFilters(url);
+      const sourceUrl = btn.dataset.url;
+      const itemId = btn.dataset.id;
+      const isSkip = btn.classList.contains('skip-btn');
+      const row = btn.closest('.item-row');
 
-    // Requeue buttons
-    container.querySelectorAll('.requeue-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          const sourceUrl = btn.dataset.url;
-          const itemId = btn.dataset.id;
-          const res = await fetch(
-            '/sources/' + encodeURIComponent(sourceUrl) + '/items/' + itemId + '/requeue',
-            { method: 'POST' }
-          );
+      // Optimistic update
+      if (row) {
+        const newStatus = isSkip ? 'skipped' : 'pending';
+        row.dataset.status = newStatus;
+        row.querySelector('.item-status').className = `item-status status-${newStatus}`;
+        row.querySelector('.item-status').textContent = newStatus;
+        btn.replaceWith(isSkip ? makeRequeueBtn(sourceUrl, itemId) : makeSkipBtn(sourceUrl, itemId));
+        applyFilters(url);
+      }
+
+      try {
+        const endpoint = isSkip ? 'skip' : 'requeue';
+        const res = await fetch(
+          '/sources/' + encodeURIComponent(sourceUrl) + '/items/' + itemId + '/' + endpoint,
+          { method: 'POST' }
+        );
+        if (res.ok) {
+          showToast(isSkip ? 'Item skipped' : 'Item requeued for next sync');
+          refreshSkipped();
+        } else {
           const body = await res.json();
-          if (res.ok) {
-            showToast('Item requeued for next sync');
-            // Refresh items list
-            const card = btn.closest('.source-card');
-            if (card) {
-              loadSourceItems(card.dataset.url, card.dataset.mode, card.querySelector('.items-list'));
-            }
-          } else {
-            showToast(body.error || 'Requeue failed');
-            btn.disabled = false;
-          }
-        } catch (e) {
-          showToast('Requeue failed');
-          btn.disabled = false;
+          showToast(body.error || (isSkip ? 'Skip failed' : 'Requeue failed'));
+          // Revert by doing a full reload
+          const card = container.closest('.source-card');
+          if (card) loadSourceItems(card.dataset.url, card.dataset.mode, container);
         }
-      });
+      } catch {
+        showToast(isSkip ? 'Skip failed' : 'Requeue failed');
+      }
     });
+  }
+
+  function makeRequeueBtn(sourceUrl, itemId) {
+    const b = document.createElement('button');
+    b.className = 'requeue-btn';
+    b.dataset.url = sourceUrl;
+    b.dataset.id = itemId;
+    b.textContent = 'Requeue';
+    return b;
+  }
+
+  function makeSkipBtn(sourceUrl, itemId) {
+    const b = document.createElement('button');
+    b.className = 'skip-btn';
+    b.dataset.url = sourceUrl;
+    b.dataset.id = itemId;
+    b.textContent = 'Skip';
+    return b;
   }
 
   // ── Skipped Panel ──────────────────────────────────────────────────────────
@@ -828,26 +832,33 @@
       </div>`;
     }).join('');
 
-    // Requeue buttons in skipped panel
+    // Requeue buttons in skipped panel — optimistic row removal
     panel.querySelectorAll('.requeue-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
+        const row = btn.closest('.skipped-row');
+        if (row) row.style.opacity = '0.4';
         try {
           const res = await fetch(
             '/sources/' + encodeURIComponent(btn.dataset.url) + '/items/' + btn.dataset.id + '/requeue',
             { method: 'POST' }
           );
-          const body = await res.json();
           if (res.ok) {
             showToast('Item requeued for next sync');
-            refreshSkipped();
+            if (row) row.remove();
+            if (!panel.querySelector('.skipped-row')) {
+              panel.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted)">No skipped items</div>';
+            }
             refreshSources();
           } else {
+            const body = await res.json();
             showToast(body.error || 'Requeue failed');
+            if (row) row.style.opacity = '';
             btn.disabled = false;
           }
         } catch {
           showToast('Requeue failed');
+          if (row) row.style.opacity = '';
           btn.disabled = false;
         }
       });

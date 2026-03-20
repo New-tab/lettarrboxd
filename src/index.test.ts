@@ -921,6 +921,35 @@ describe('main application', () => {
     expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
   });
 
+  it('re-deletes a movie re-added to the diary after being previously acknowledged', async () => {
+    // Regression: an acknowledged delete-mode item must reset to pending when the movie
+    // re-appears in the diary RSS feed so it gets deleted again.
+    setDeleteMode();
+
+    // Pre-seed: movie already acknowledged (was previously deleted)
+    await stateModule.saveState(dataDir, makeV2State(DELETE_URL, 'delete', {
+      '9': createSavedItem({ id: 9, name: 'Re-Diared Movie', slug: '/film/re-diared/', tmdbId: '999', status: 'acknowledged' }),
+    }));
+
+    loadModules();
+    scraperModule.detectListType.mockReturnValue('diary');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    mockRssScraper([createMovie({ id: 9, name: 'Re-Diared Movie', slug: '/film/re-diared/', tmdbId: '999' })]);
+    mountModule.mountSentinelExists.mockResolvedValue(true);
+    seerrModule.getMediaIdByTmdbId.mockResolvedValue(42);
+    seerrModule.deleteMediaFile.mockResolvedValue('deleted');
+    seerrModule.deleteMedia.mockResolvedValue('deleted');
+
+    // Movie re-appears in diary RSS — should reset to pending and then be deleted
+    startScheduledMonitoring();
+    const savedState = await waitForState(state => (
+      state.sources?.[DELETE_URL]?.items['9']?.status === 'acknowledged'
+    ));
+
+    expect(savedState.sources[DELETE_URL].items['9'].status).toBe('acknowledged');
+    expect(seerrModule.deleteMediaFile).toHaveBeenCalled();
+  });
+
   it('re-requests a movie removed from watchlist then re-added after diary deletion', async () => {
     // Regression: a movie previously acknowledged in request-mode must become pending
     // again if it leaves the watchlist feed and is later re-added, so that Seerr creates
