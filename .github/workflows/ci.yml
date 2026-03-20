@@ -6,11 +6,11 @@ on:
       - main
       - 'feature/**'
       - 'defect/**'
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
-  release:
-    types: [published]
 
 jobs:
   build-and-test:
