@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Seerrboxd</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #111317;
+      --surface: #1a1d23;
+      --surface2: #22262e;
+      --border: #2d3240;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --accent: #6366f1;
+      --accent-hover: #4f52d4;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --blue: #3b82f6;
+      --radius: 8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      flex: 1;
+    }
+
+    header h1 span { color: var(--accent); }
+
+    #sync-status {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+
+    .dot.syncing {
+      background: var(--accent);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    button.requeue-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    button.requeue-btn:hover:not(:disabled) {
+      background: var(--border);
+      color: var(--text);
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 24px;
+    }
+
+    @media (max-width: 768px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    section { display: flex; flex-direction: column; gap: 12px; }
+
+    h2 {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+    }
+
+    /* Activity feed */
+    #activity-feed {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+    }
+
+    .event-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .event-item:last-child { border-bottom: none; }
+
+    .event-badge {
+      flex-shrink: 0;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-requested { background: #1d4ed8; color: #bfdbfe; }
+    .badge-deleted { background: #7f1d1d; color: #fecaca; }
+    .badge-cleanup { background: #6b21a8; color: #e9d5ff; }
+    .badge-bootstrapped { background: #164e63; color: #a5f3fc; }
+    .badge-skipped { background: #3f3f46; color: #a1a1aa; }
+    .badge-error { background: #7f1d1d; color: #fca5a5; }
+    .badge-sync_started { background: #1e3a5f; color: #93c5fd; }
+    .badge-sync_completed { background: #14532d; color: #86efac; }
+
+    .event-content { flex: 1; min-width: 0; }
+    .event-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .event-meta { color: var(--text-muted); font-size: 11px; margin-top: 1px; }
+
+    .event-time {
+      flex-shrink: 0;
+      color: var(--text-muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    #activity-empty {
+      padding: 32px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    /* Sources panel */
+    .source-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .source-header {
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .source-header:hover { background: var(--surface2); }
+
+    .source-mode-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .mode-request { background: #1d4ed8; color: #bfdbfe; }
+    .mode-delete  { background: #7f1d1d; color: #fecaca; }
+
+    .source-url {
+      flex: 1;
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .source-counts {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .count-pill {
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+
+    .chevron {
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--text-muted);
+      transition: transform 0.15s;
+    }
+
+    .source-card.open .chevron { transform: rotate(90deg); }
+
+    .source-body { display: none; border-top: 1px solid var(--border); }
+    .source-card.open .source-body { display: block; }
+
+    .items-list { max-height: 320px; overflow-y: auto; }
+
+    .item-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .item-row:last-child { border-bottom: none; }
+
+    .item-name {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .item-status {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .status-acknowledged { color: var(--green); }
+    .status-skipped       { color: var(--yellow); }
+    .status-pending       { color: var(--blue); }
+    .status-cleanupPending { color: var(--red); }
+
+    .items-loading {
+      padding: 16px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .source-meta {
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--surface2);
+    }
+
+    #no-sources {
+      padding: 32px;
+      text-align: center;
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 13px;
+      z-index: 100;
+      animation: fadein 0.2s ease;
+    }
+
+    @keyframes fadein { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Seerr<span>boxd</span></h1>
+  <div id="sync-status">
+    <div class="dot" id="sync-dot"></div>
+    <span id="sync-label">Idle</span>
+  </div>
+  <button id="sync-btn">Sync Now</button>
+</header>
+
+<main>
+  <section>
+    <h2>Activity</h2>
+    <div id="activity-feed">
+      <div id="activity-empty">No events yet</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sources</h2>
+    <div id="sources-panel"></div>
+  </section>
+</main>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let syncing = false;
+  let pollTimer = null;
+
+  // ── Utils ──────────────────────────────────────────────────────────────────
+  function relativeTime(iso) {
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+    return Math.floor(diff / 86400000) + 'd ago';
+  }
+
+  function showToast(msg) {
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Activity Feed ──────────────────────────────────────────────────────────
+  async function refreshEvents() {
+    try {
+      const res = await fetch('/events?limit=100');
+      const { events } = await res.json();
+      renderEvents(events);
+    } catch (e) { /* silently ignore */ }
+  }
+
+  function renderEvents(events) {
+    const feed = document.getElementById('activity-feed');
+    if (!events || events.length === 0) {
+      feed.innerHTML = '<div id="activity-empty">No events yet</div>';
+      return;
+    }
+
+    feed.innerHTML = events.map(ev => {
+      const title = ev.itemName
+        ? escapeHtml(ev.itemName)
+        : ev.message
+          ? escapeHtml(ev.message)
+          : escapeHtml(ev.action);
+
+      const meta = [
+        ev.sourceUrl ? ev.sourceUrl.replace('https://letterboxd.com', '') : null,
+        ev.tmdbId ? 'TMDb ' + ev.tmdbId : null,
+        ev.message && ev.itemName ? escapeHtml(ev.message) : null,
+      ].filter(Boolean).join(' · ');
+
+      return `<div class="event-item">
+        <span class="event-badge badge-${escapeHtml(ev.action)}">${escapeHtml(ev.action)}</span>
+        <div class="event-content">
+          <div class="event-title">${title}</div>
+          ${meta ? `<div class="event-meta">${meta}</div>` : ''}
+        </div>
+        <div class="event-time">${relativeTime(ev.timestamp)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Sources Panel ──────────────────────────────────────────────────────────
+  async function refreshSources() {
+    try {
+      const res = await fetch('/status');
+      const { sources, syncing: isSyncing } = await res.json();
+      updateSyncState(isSyncing);
+      renderSources(sources);
+    } catch (e) { /* silently ignore */ }
+  }
+
+  function renderSources(sources) {
+    const panel = document.getElementById('sources-panel');
+    const entries = Object.entries(sources || {});
+
+    if (entries.length === 0) {
+      panel.innerHTML = '<div id="no-sources">No sources configured</div>';
+      return;
+    }
+
+    // Preserve open state of existing cards
+    const openUrls = new Set(
+      Array.from(panel.querySelectorAll('.source-card.open'))
+        .map(el => el.dataset.url)
+    );
+
+    panel.innerHTML = entries.map(([url, src]) => {
+      const isOpen = openUrls.has(url);
+      const counts = Object.entries(src.itemCounts || {})
+        .map(([s, n]) => `<span class="count-pill">${escapeHtml(s)}: ${n}</span>`)
+        .join('');
+      const shortUrl = url.replace('https://letterboxd.com', '');
+
+      return `<div class="source-card${isOpen ? ' open' : ''}" data-url="${escapeHtml(url)}" data-mode="${escapeHtml(src.mode)}">
+        <div class="source-header">
+          <span class="source-mode-badge mode-${escapeHtml(src.mode)}">${escapeHtml(src.mode)}</span>
+          <span class="source-url" title="${escapeHtml(url)}">${escapeHtml(shortUrl)}</span>
+          <span class="source-counts">${counts}</span>
+          <span class="chevron">▶</span>
+        </div>
+        <div class="source-body">
+          <div class="source-meta">${escapeHtml(url)}</div>
+          <div class="items-list" data-url="${escapeHtml(url)}">
+            ${isOpen ? '<div class="items-loading">Loading…</div>' : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Re-attach toggle listeners
+    panel.querySelectorAll('.source-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const card = header.closest('.source-card');
+        const wasOpen = card.classList.contains('open');
+        card.classList.toggle('open');
+        if (!wasOpen) {
+          loadSourceItems(card.dataset.url, card.dataset.mode, card.querySelector('.items-list'));
+        }
+      });
+    });
+
+    // Load items for cards that were already open
+    panel.querySelectorAll('.source-card.open').forEach(card => {
+      loadSourceItems(card.dataset.url, card.dataset.mode, card.querySelector('.items-list'));
+    });
+  }
+
+  async function loadSourceItems(url, mode, container) {
+    if (!container) return;
+    container.innerHTML = '<div class="items-loading">Loading…</div>';
+    try {
+      const res = await fetch('/sources/' + encodeURIComponent(url) + '/items');
+      if (!res.ok) {
+        container.innerHTML = '<div class="items-loading">Failed to load items</div>';
+        return;
+      }
+      const { items } = await res.json();
+      renderSourceItems(url, mode, items, container);
+    } catch (e) {
+      container.innerHTML = '<div class="items-loading">Error loading items</div>';
+    }
+  }
+
+  function renderSourceItems(url, mode, items, container) {
+    const entries = Object.entries(items || {});
+    if (entries.length === 0) {
+      container.innerHTML = '<div class="items-loading">No items</div>';
+      return;
+    }
+
+    // For delete-mode: show acknowledged + skipped items with Requeue button
+    // For request-mode: show all items (read-only)
+    container.innerHTML = entries.map(([id, item]) => {
+      const canRequeue = mode === 'delete' && (item.status === 'acknowledged' || item.status === 'skipped');
+      return `<div class="item-row">
+        <span class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+        <span class="item-status status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span>
+        ${canRequeue
+          ? `<button class="requeue-btn" data-url="${escapeHtml(url)}" data-id="${escapeHtml(id)}">Requeue</button>`
+          : ''}
+      </div>`;
+    }).join('');
+
+    // Requeue buttons
+    container.querySelectorAll('.requeue-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const sourceUrl = btn.dataset.url;
+          const itemId = btn.dataset.id;
+          const res = await fetch(
+            '/sources/' + encodeURIComponent(sourceUrl) + '/items/' + itemId + '/requeue',
+            { method: 'POST' }
+          );
+          const body = await res.json();
+          if (res.ok) {
+            showToast('Item requeued for next sync');
+            // Refresh items list
+            const card = btn.closest('.source-card');
+            if (card) {
+              loadSourceItems(card.dataset.url, card.dataset.mode, card.querySelector('.items-list'));
+            }
+          } else {
+            showToast(body.error || 'Requeue failed');
+            btn.disabled = false;
+          }
+        } catch (e) {
+          showToast('Requeue failed');
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  // ── Sync State ─────────────────────────────────────────────────────────────
+  function updateSyncState(isSyncing) {
+    syncing = isSyncing;
+    const dot = document.getElementById('sync-dot');
+    const label = document.getElementById('sync-label');
+    const btn = document.getElementById('sync-btn');
+
+    dot.className = 'dot' + (isSyncing ? ' syncing' : '');
+    label.textContent = isSyncing ? 'Syncing…' : 'Idle';
+    btn.disabled = isSyncing;
+
+    schedulePoll();
+  }
+
+  function schedulePoll() {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(async () => {
+      await Promise.all([refreshEvents(), refreshSources()]);
+    }, syncing ? 5000 : 30000);
+  }
+
+  // ── Sync Button ────────────────────────────────────────────────────────────
+  document.getElementById('sync-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('sync-btn');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/sync', { method: 'POST' });
+      if (res.status === 202) {
+        updateSyncState(true);
+        showToast('Sync started');
+        setTimeout(() => {
+          refreshEvents();
+          refreshSources();
+        }, 500);
+      } else if (res.status === 409) {
+        showToast('Sync already in progress');
+        btn.disabled = false;
+      } else {
+        showToast('Sync request failed');
+        btn.disabled = false;
+      }
+    } catch (e) {
+      showToast('Sync request failed');
+      btn.disabled = false;
+    }
+  });
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  Promise.all([refreshEvents(), refreshSources()]);
+</script>
+
+</body>
+</html>

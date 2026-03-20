@@ -151,4 +151,186 @@ describe('server', () => {
     resolveSync();
     await new Promise(resolve => setImmediate(resolve));
   });
+
+  it('GET /events returns empty events when log file does not exist', async () => {
+    const port = await startTestApp();
+    const { status, body } = await httpRequest(port, 'GET', '/events');
+
+    expect(status).toBe(200);
+    expect(body.events).toEqual([]);
+  });
+
+  it('GET /events returns logged events', async () => {
+    const { appendEvent } = require('./util/activity-log');
+    await appendEvent(dataDir, {
+      timestamp: '2026-01-01T00:00:00.000Z',
+      sourceUrl: 'https://letterboxd.com/user/watchlist',
+      mode: 'request',
+      action: 'requested',
+      itemName: 'Test Movie',
+      tmdbId: '123',
+    });
+
+    const port = await startTestApp();
+    const { status, body } = await httpRequest(port, 'GET', '/events');
+
+    expect(status).toBe(200);
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0].action).toBe('requested');
+    expect(body.events[0].itemName).toBe('Test Movie');
+  });
+
+  it('GET /events respects limit query param (max 200)', async () => {
+    const port = await startTestApp();
+    const { status: s1, body: b1 } = await httpRequest(port, 'GET', '/events?limit=5');
+    expect(s1).toBe(200);
+    expect(Array.isArray(b1.events)).toBe(true);
+
+    // limit > 200 should be capped
+    const { status: s2, body: b2 } = await httpRequest(port, 'GET', '/events?limit=999');
+    expect(s2).toBe(200);
+    expect(Array.isArray(b2.events)).toBe(true);
+  });
+
+  it('GET /sources/:sourceUrl/items returns 404 when no state exists', async () => {
+    const port = await startTestApp();
+    const encoded = encodeURIComponent('https://letterboxd.com/user/watchlist');
+    const { status } = await httpRequest(port, 'GET', `/sources/${encoded}/items`);
+    expect(status).toBe(404);
+  });
+
+  it('GET /sources/:sourceUrl/items returns items for a known source', async () => {
+    const url = 'https://letterboxd.com/user/films';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: {
+        [url]: {
+          url,
+          mode: 'delete',
+          rssEtag: null,
+          items: {
+            '7': { id: 7, name: 'Delete Me', slug: '/film/delete-me/', tmdbId: '777', firstSeenAt: '', lastSeenAt: '', retryCount: 0, status: 'acknowledged', lastError: null },
+          },
+        },
+      },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status, body } = await httpRequest(port, 'GET', `/sources/${encoded}/items`);
+
+    expect(status).toBe(200);
+    expect(body.mode).toBe('delete');
+    expect(body.items['7']).toEqual(expect.objectContaining({ name: 'Delete Me', status: 'acknowledged' }));
+  });
+
+  it('POST /sources/:sourceUrl/items/:itemId/requeue sets acknowledged item to pending', async () => {
+    const url = 'https://letterboxd.com/user/films';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: {
+        [url]: {
+          url,
+          mode: 'delete',
+          rssEtag: null,
+          items: {
+            '7': { id: 7, name: 'Delete Me', slug: '/film/delete-me/', tmdbId: '777', firstSeenAt: '', lastSeenAt: '', retryCount: 2, status: 'acknowledged', lastError: 'some error' },
+          },
+        },
+      },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status, body } = await httpRequest(port, 'POST', `/sources/${encoded}/items/7/requeue`);
+
+    expect(status).toBe(200);
+    expect(body.item.status).toBe('pending');
+    expect(body.item.retryCount).toBe(0);
+    expect(body.item.lastError).toBeNull();
+
+    // Verify state was persisted
+    const savedState = await stateModule.loadState(dataDir);
+    expect(savedState.sources[url].items['7'].status).toBe('pending');
+    expect(savedState.sources[url].items['7'].retryCount).toBe(0);
+  });
+
+  it('POST requeue returns 400 for request-mode sources', async () => {
+    const url = 'https://letterboxd.com/user/watchlist';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: {
+        [url]: {
+          url,
+          mode: 'request',
+          rssEtag: null,
+          items: {
+            '1': { id: 1, name: 'Movie', slug: '/film/movie/', tmdbId: '111', firstSeenAt: '', lastSeenAt: '', retryCount: 0, status: 'acknowledged', lastError: null },
+          },
+        },
+      },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status, body } = await httpRequest(port, 'POST', `/sources/${encoded}/items/1/requeue`);
+
+    expect(status).toBe(400);
+    expect(body.error).toContain('delete-mode');
+  });
+
+  it('POST requeue returns 400 for pending items', async () => {
+    const url = 'https://letterboxd.com/user/films';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: {
+        [url]: {
+          url,
+          mode: 'delete',
+          rssEtag: null,
+          items: {
+            '1': { id: 1, name: 'Movie', slug: '/film/movie/', tmdbId: '111', firstSeenAt: '', lastSeenAt: '', retryCount: 0, status: 'pending', lastError: null },
+          },
+        },
+      },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status } = await httpRequest(port, 'POST', `/sources/${encoded}/items/1/requeue`);
+
+    expect(status).toBe(400);
+  });
+
+  it('POST requeue returns 409 when sync is in progress', async () => {
+    let resolveSync!: () => void;
+    const runAllSources = jest.fn().mockImplementation(
+      () => new Promise<void>(resolve => { resolveSync = resolve; })
+    );
+    const port = await startTestApp(runAllSources);
+
+    await httpRequest(port, 'POST', '/sync');
+    await new Promise(resolve => setImmediate(resolve));
+
+    const encoded = encodeURIComponent('https://letterboxd.com/user/films');
+    const { status, body } = await httpRequest(port, 'POST', `/sources/${encoded}/items/1/requeue`);
+    expect(status).toBe(409);
+    expect(body.error).toContain('already in progress');
+
+    resolveSync();
+    await new Promise(resolve => setImmediate(resolve));
+  });
+
+  it('GET / serves the static index.html', async () => {
+    const port = await startTestApp();
+    const { status, body } = await httpRequest(port, 'GET', '/');
+
+    expect(status).toBe(200);
+    expect(typeof body).toBe('string');
+    expect(body).toContain('Seerrboxd');
+  });
 });

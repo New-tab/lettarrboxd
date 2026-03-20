@@ -37,6 +37,7 @@ import {
   SyncState,
   SyncStateItem,
 } from './util/state';
+import { appendEvent, ActivityEvent } from './util/activity-log';
 import { startServer } from './server';
 
 function getModeForUrl(url: string): SyncMode {
@@ -129,7 +130,15 @@ function upsertStateWithCurrentMovies(
     }
 
     if (item.status === 'acknowledged' || item.status === 'skipped') {
-      nextItems[key] = { ...item };
+      // Delete-mode: always retain terminal items (we need to remember what was deleted
+      // to avoid re-deleting on every tick, and cleanup-pending retry needs them too).
+      // Request-mode: only retain while the movie is still in the current feed. If it
+      // leaves the list and is re-added later (e.g., deleted from Radarr via diary and
+      // then re-added to watchlist), it should start fresh as pending so it gets
+      // re-requested.
+      if (mode === 'delete' || currentMovieKeys.has(key)) {
+        nextItems[key] = { ...item };
+      }
       continue;
     }
 
@@ -171,9 +180,17 @@ function buildCurrentMovieMap(movies: LetterboxdMovie[]): Map<string, Letterboxd
   return new Map(movies.map(movie => [getStateKey(movie.id), movie]));
 }
 
+// Emit an activity event; errors are caught and logged so sync is never blocked.
+async function logEvent(event: ActivityEvent): Promise<void> {
+  await appendEvent(env.DATA_DIR, event).catch(err => {
+    logger.error(`Failed to write activity event: ${err}`);
+  });
+}
+
 async function runRequestMode(
   state: SourceState,
-  currentMovieMap: Map<string, LetterboxdMovie>
+  currentMovieMap: Map<string, LetterboxdMovie>,
+  timestamp: string
 ): Promise<SourceState> {
   const nextState: SourceState = {
     ...state,
@@ -192,6 +209,16 @@ async function runRequestMode(
         'TMDb ID is missing',
         'Per-item failure (TMDb missing)'
       );
+      const updated = nextState.items[key];
+      await logEvent({
+        timestamp,
+        sourceUrl: state.url,
+        mode: state.mode,
+        action: updated.status === 'skipped' ? 'skipped' : 'error',
+        itemName: item.name,
+        itemId: String(item.id),
+        message: 'TMDb ID is missing',
+      });
       continue;
     }
 
@@ -204,6 +231,16 @@ async function runRequestMode(
       } else {
         logger.info(`Successfully created Seerr request for ${movie.name} (TMDb: ${movie.tmdbId}).`);
       }
+
+      await logEvent({
+        timestamp,
+        sourceUrl: state.url,
+        mode: state.mode,
+        action: 'requested',
+        itemName: movie.name,
+        itemId: String(movie.id),
+        tmdbId: movie.tmdbId,
+      });
     } catch (error) {
       const errorMessage = formatError(error);
       if (isServiceError(error)) {
@@ -211,6 +248,16 @@ async function runRequestMode(
         logger.error(
           `Service failure while requesting ${movie.name} in Seerr. Item will remain retryable. ${errorMessage}`
         );
+        await logEvent({
+          timestamp,
+          sourceUrl: state.url,
+          mode: state.mode,
+          action: 'error',
+          itemName: movie.name,
+          itemId: String(movie.id),
+          tmdbId: movie.tmdbId ?? undefined,
+          message: errorMessage,
+        });
         continue;
       }
 
@@ -221,7 +268,7 @@ async function runRequestMode(
   return nextState;
 }
 
-async function runCleanupPendingItems(state: SourceState): Promise<SourceState> {
+async function runCleanupPendingItems(state: SourceState, timestamp: string): Promise<SourceState> {
   const nextState: SourceState = {
     ...state,
     items: { ...state.items },
@@ -237,6 +284,15 @@ async function runCleanupPendingItems(state: SourceState): Promise<SourceState> 
       logger.error(
         `cleanupPending item ${item.name} is missing a Seerr media ID. Marking as skipped for manual review.`
       );
+      await logEvent({
+        timestamp,
+        sourceUrl: state.url,
+        mode: state.mode,
+        action: 'skipped',
+        itemName: item.name,
+        itemId: String(item.id),
+        message: 'cleanupPending item is missing Seerr media ID',
+      });
       continue;
     }
 
@@ -251,6 +307,16 @@ async function runCleanupPendingItems(state: SourceState): Promise<SourceState> 
       } else {
         logger.info(`Successfully completed Seerr cleanup for ${item.name}.`);
       }
+
+      await logEvent({
+        timestamp,
+        sourceUrl: state.url,
+        mode: state.mode,
+        action: 'cleanup',
+        itemName: item.name,
+        itemId: String(item.id),
+        tmdbId: item.tmdbId ?? undefined,
+      });
     } catch (error) {
       nextState.items[key] = markTransientItemFailure(item, formatError(error));
       logger.error(
@@ -264,9 +330,10 @@ async function runCleanupPendingItems(state: SourceState): Promise<SourceState> 
 
 async function runDeleteMode(
   state: SourceState,
-  currentMovieMap: Map<string, LetterboxdMovie>
+  currentMovieMap: Map<string, LetterboxdMovie>,
+  timestamp: string
 ): Promise<SourceState> {
-  let nextState = await runCleanupPendingItems(state);
+  let nextState = await runCleanupPendingItems(state, timestamp);
   const pendingDeleteKeys = Object.entries(nextState.items)
     .filter(([key, item]) => item.status === 'pending' && currentMovieMap.has(key))
     .map(([key]) => key);
@@ -297,6 +364,16 @@ async function runDeleteMode(
         'TMDb ID is missing',
         'Per-item failure (TMDb missing)'
       );
+      const updated = nextState.items[key];
+      await logEvent({
+        timestamp,
+        sourceUrl: state.url,
+        mode: state.mode,
+        action: updated.status === 'skipped' ? 'skipped' : 'error',
+        itemName: item.name,
+        itemId: String(item.id),
+        message: 'TMDb ID is missing',
+      });
       continue;
     }
 
@@ -307,6 +384,16 @@ async function runDeleteMode(
           `${movie.name} (TMDb: ${movie.tmdbId}) is not tracked in Seerr. Marking as acknowledged.`
         );
         nextState.items[key] = markAcknowledged(item);
+        await logEvent({
+          timestamp,
+          sourceUrl: state.url,
+          mode: state.mode,
+          action: 'deleted',
+          itemName: movie.name,
+          itemId: String(movie.id),
+          tmdbId: movie.tmdbId,
+          message: 'Not tracked in Seerr',
+        });
         continue;
       }
 
@@ -324,11 +411,31 @@ async function runDeleteMode(
         } else {
           logger.info(`Successfully removed ${movie.name} from Seerr.`);
         }
+
+        await logEvent({
+          timestamp,
+          sourceUrl: state.url,
+          mode: state.mode,
+          action: 'deleted',
+          itemName: movie.name,
+          itemId: String(movie.id),
+          tmdbId: movie.tmdbId,
+        });
       } catch (error) {
         nextState.items[key] = markCleanupPending(item, formatError(error), mediaId);
         logger.error(
           `Radarr delete succeeded for ${movie.name}, but Seerr record cleanup failed. Marking item cleanupPending. ${formatError(error)}`
         );
+        await logEvent({
+          timestamp,
+          sourceUrl: state.url,
+          mode: state.mode,
+          action: 'error',
+          itemName: movie.name,
+          itemId: String(movie.id),
+          tmdbId: movie.tmdbId,
+          message: formatError(error),
+        });
       }
     } catch (error) {
       const errorMessage = formatError(error);
@@ -337,6 +444,16 @@ async function runDeleteMode(
         logger.error(
           `Service failure while deleting ${movie.name} from Radarr/Seerr. Item remains retryable. ${errorMessage}`
         );
+        await logEvent({
+          timestamp,
+          sourceUrl: state.url,
+          mode: state.mode,
+          action: 'error',
+          itemName: movie.name,
+          itemId: String(movie.id),
+          tmdbId: movie.tmdbId ?? undefined,
+          message: errorMessage,
+        });
         continue;
       }
 
@@ -416,90 +533,104 @@ export async function runAllSources(): Promise<void> {
   let globalState = (await loadState(env.DATA_DIR, env.letterboxdUrls[0])) ?? createEmptyState();
   let shouldSave = false;
 
-  for (const url of env.letterboxdUrls) {
-    const mode = getModeForUrl(url);
-    const existingSource = globalState.sources[url];
-    const isFirstRun = !existingSource || existingSource.mode !== mode;
+  await logEvent({ timestamp, action: 'sync_started', message: 'Sync started' });
 
-    if (existingSource && existingSource.mode !== mode) {
-      logger.warn(
-        `Mode mismatch for ${url}: stored state has mode ${existingSource.mode} but URL resolves to ${mode}. Resetting source state.`
-      );
-    }
+  try {
+    for (const url of env.letterboxdUrls) {
+      const mode = getModeForUrl(url);
+      const existingSource = globalState.sources[url];
+      const isFirstRun = !existingSource || existingSource.mode !== mode;
 
-    let sourceState = getOrCreateSourceState(globalState, url, mode);
+      if (existingSource && existingSource.mode !== mode) {
+        logger.warn(
+          `Mode mismatch for ${url}: stored state has mode ${existingSource.mode} but URL resolves to ${mode}. Resetting source state.`
+        );
+      }
 
-    let movies: LetterboxdMovie[];
-    let newRssEtag: string | null | undefined;
+      let sourceState = getOrCreateSourceState(globalState, url, mode);
 
-    if (mode === 'delete') {
-      const rssScraper = new RssScraper(url);
-      const result = await rssScraper.getMovies(sourceState.rssEtag);
-      if (result === null) {
-        logger.debug(`RSS feed for ${url} unchanged (304). Skipping source.`);
+      let movies: LetterboxdMovie[];
+      let newRssEtag: string | null | undefined;
+
+      if (mode === 'delete') {
+        const rssScraper = new RssScraper(url);
+        const result = await rssScraper.getMovies(sourceState.rssEtag);
+        if (result === null) {
+          logger.debug(`RSS feed for ${url} unchanged (304). Skipping source.`);
+          continue;
+        }
+        movies = result.movies;
+        newRssEtag = result.etag;
+      } else {
+        movies = await fetchMoviesFromUrl(url);
+      }
+
+      const currentMovieMap = buildCurrentMovieMap(movies);
+
+      sourceState = upsertStateWithCurrentMovies(sourceState, movies, mode, timestamp);
+
+      if (newRssEtag !== undefined) {
+        sourceState = { ...sourceState, rssEtag: newRssEtag };
+      }
+
+      if (mode === 'delete' && isFirstRun) {
+        const bootstrappedItems = Object.entries(sourceState.items).reduce<SourceState['items']>(
+          (items, [key, item]) => {
+            items[key] = markAcknowledged(item);
+            return items;
+          },
+          {}
+        );
+
+        sourceState = { ...sourceState, items: bootstrappedItems };
+        logger.info(
+          `Delete mode first run for ${url}. Bootstrapping ${movies.length} items without deleting historical entries.`
+        );
+
+        await logEvent({
+          timestamp,
+          sourceUrl: url,
+          mode,
+          action: 'bootstrapped',
+          message: `Bootstrapped ${movies.length} items`,
+        });
+
+        globalState = {
+          ...globalState,
+          sources: { ...globalState.sources, [url]: sourceState },
+        };
+        await saveState(env.DATA_DIR, globalState);
+
+        if (env.DRY_RUN) {
+          logDryRun(mode, sourceState, currentMovieMap, true);
+        }
+
         continue;
       }
-      movies = result.movies;
-      newRssEtag = result.etag;
-    } else {
-      movies = await fetchMoviesFromUrl(url);
-    }
 
-    const currentMovieMap = buildCurrentMovieMap(movies);
+      if (env.DRY_RUN) {
+        logDryRun(mode, sourceState, currentMovieMap, isFirstRun);
+        continue;
+      }
 
-    sourceState = upsertStateWithCurrentMovies(sourceState, movies, mode, timestamp);
+      checkCrossSourceOverlap(globalState, url, currentMovieMap);
 
-    if (newRssEtag !== undefined) {
-      sourceState = { ...sourceState, rssEtag: newRssEtag };
-    }
-
-    if (mode === 'delete' && isFirstRun) {
-      const bootstrappedItems = Object.entries(sourceState.items).reduce<SourceState['items']>(
-        (items, [key, item]) => {
-          items[key] = markAcknowledged(item);
-          return items;
-        },
-        {}
-      );
-
-      sourceState = { ...sourceState, items: bootstrappedItems };
-      logger.info(
-        `Delete mode first run for ${url}. Bootstrapping ${movies.length} items without deleting historical entries.`
-      );
+      const nextSourceState = mode === 'request'
+        ? await runRequestMode(sourceState, currentMovieMap, timestamp)
+        : await runDeleteMode(sourceState, currentMovieMap, timestamp);
 
       globalState = {
         ...globalState,
-        sources: { ...globalState.sources, [url]: sourceState },
+        sources: { ...globalState.sources, [url]: nextSourceState },
       };
+      shouldSave = true;
+    }
+
+    if (shouldSave) {
       await saveState(env.DATA_DIR, globalState);
-
-      if (env.DRY_RUN) {
-        logDryRun(mode, sourceState, currentMovieMap, true);
-      }
-
-      continue;
     }
-
-    if (env.DRY_RUN) {
-      logDryRun(mode, sourceState, currentMovieMap, isFirstRun);
-      continue;
-    }
-
-    checkCrossSourceOverlap(globalState, url, currentMovieMap);
-
-    const nextSourceState = mode === 'request'
-      ? await runRequestMode(sourceState, currentMovieMap)
-      : await runDeleteMode(sourceState, currentMovieMap);
-
-    globalState = {
-      ...globalState,
-      sources: { ...globalState.sources, [url]: nextSourceState },
-    };
-    shouldSave = true;
-  }
-
-  if (shouldSave) {
-    await saveState(env.DATA_DIR, globalState);
+  } finally {
+    await logEvent({ timestamp: new Date().toISOString(), action: 'sync_completed', message: 'Sync completed' });
   }
 }
 

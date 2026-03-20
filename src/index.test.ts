@@ -38,6 +38,10 @@ jest.mock('./server', () => ({
   startServer: jest.fn(),
 }));
 
+jest.mock('./util/activity-log', () => ({
+  appendEvent: jest.fn().mockResolvedValue(undefined),
+}));
+
 describe('main application', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let dataDir: string;
@@ -49,6 +53,7 @@ describe('main application', () => {
   let mountModule: any;
   let stateModule: any;
   let rssModule: any;
+  let activityLogModule: any;
 
   const WATCHLIST_URL = 'https://letterboxd.com/user/watchlist';
   const DELETE_URL = 'https://letterboxd.com/user/films';
@@ -146,6 +151,7 @@ describe('main application', () => {
     mountModule = require('./util/mount');
     stateModule = require('./util/state');
     rssModule = require('./scraper/rss');
+    activityLogModule = require('./util/activity-log');
     saveStateSpy = jest.spyOn(stateModule, 'saveState');
     ({ startScheduledMonitoring } = require('./index'));
   }
@@ -789,6 +795,93 @@ describe('main application', () => {
     expect(savedState.sources[deleteUrl].mode).toBe('delete');
   });
 
+  it('emits sync_started and sync_completed events on every sync', async () => {
+    loadModules();
+
+    scraperModule.detectListType.mockReturnValue('watchlist');
+    scraperModule.getSyncModeForListType.mockReturnValue('request');
+    scraperModule.fetchMoviesFromUrl.mockResolvedValue([createMovie()]);
+    seerrModule.createMovieRequest.mockResolvedValue('created');
+
+    startScheduledMonitoring();
+    await waitForState(state => state.sources?.[WATCHLIST_URL]?.items['1']?.status === 'acknowledged');
+    // sync_completed is emitted in the finally block *after* saveState, so flush remaining microtasks
+    await flushAsyncWork();
+
+    const calls = activityLogModule.appendEvent.mock.calls.map((c: any) => c[1].action);
+    expect(calls).toContain('sync_started');
+    expect(calls).toContain('sync_completed');
+  });
+
+  it('emits a requested event after a successful Seerr request', async () => {
+    loadModules();
+
+    scraperModule.detectListType.mockReturnValue('watchlist');
+    scraperModule.getSyncModeForListType.mockReturnValue('request');
+    scraperModule.fetchMoviesFromUrl.mockResolvedValue([createMovie()]);
+    seerrModule.createMovieRequest.mockResolvedValue('created');
+
+    startScheduledMonitoring();
+    await waitForState(state => state.sources?.[WATCHLIST_URL]?.items['1']?.status === 'acknowledged');
+
+    const requestedCalls = activityLogModule.appendEvent.mock.calls
+      .map((c: any) => c[1])
+      .filter((ev: any) => ev.action === 'requested');
+
+    expect(requestedCalls).toHaveLength(1);
+    expect(requestedCalls[0].itemName).toBe('Movie 1');
+    expect(requestedCalls[0].tmdbId).toBe('123');
+    expect(requestedCalls[0].sourceUrl).toBe(WATCHLIST_URL);
+  });
+
+  it('emits a deleted event after a successful Radarr/Seerr delete', async () => {
+    setDeleteMode();
+    loadModules();
+
+    scraperModule.detectListType.mockReturnValue('watched_movies');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    mockRssScraper([createMovie({ id: 7, name: 'Delete Me', tmdbId: '777' })]);
+    await stateModule.saveState(dataDir, makeV2State(DELETE_URL, 'delete', {
+      '7': createSavedItem({ id: 7, name: 'Delete Me', tmdbId: '777' }),
+    }));
+    saveStateSpy.mockClear();
+    mountModule.mountSentinelExists.mockResolvedValue(true);
+    seerrModule.getMediaIdByTmdbId.mockResolvedValue(42);
+    seerrModule.deleteMediaFile.mockResolvedValue('deleted');
+    seerrModule.deleteMedia.mockResolvedValue('deleted');
+
+    startScheduledMonitoring();
+    await waitForState(state => state.sources?.[DELETE_URL]?.items['7']?.status === 'acknowledged');
+
+    const deletedCalls = activityLogModule.appendEvent.mock.calls
+      .map((c: any) => c[1])
+      .filter((ev: any) => ev.action === 'deleted');
+
+    expect(deletedCalls).toHaveLength(1);
+    expect(deletedCalls[0].itemName).toBe('Delete Me');
+    expect(deletedCalls[0].tmdbId).toBe('777');
+  });
+
+  it('emits a bootstrapped event on first-run delete mode', async () => {
+    setDeleteMode();
+    loadModules();
+
+    scraperModule.detectListType.mockReturnValue('watched_movies');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    mockRssScraper([createMovie({ id: 9, name: 'Watched Movie', tmdbId: '999' })]);
+
+    startScheduledMonitoring();
+    await waitForState(state => state.sources?.[DELETE_URL]?.items['9']?.status === 'acknowledged');
+
+    const bootstrappedCalls = activityLogModule.appendEvent.mock.calls
+      .map((c: any) => c[1])
+      .filter((ev: any) => ev.action === 'bootstrapped');
+
+    expect(bootstrappedCalls).toHaveLength(1);
+    expect(bootstrappedCalls[0].sourceUrl).toBe(DELETE_URL);
+    expect(bootstrappedCalls[0].mode).toBe('delete');
+  });
+
   it('first-run bootstrap for one source does not affect other sources', async () => {
     const requestUrl = WATCHLIST_URL;
     const deleteUrl = DIARY_URL;
@@ -808,7 +901,10 @@ describe('main application', () => {
     scraperModule.getSyncModeForListType
       .mockReturnValueOnce('request')
       .mockReturnValueOnce('delete');
-    scraperModule.fetchMoviesFromUrl.mockResolvedValue([]);
+    // Keep movie 1 on the watchlist so the acknowledged item is retained
+    scraperModule.fetchMoviesFromUrl.mockResolvedValue([
+      createMovie({ id: 1, name: 'Already Requested', tmdbId: '111' }),
+    ]);
     mockRssScraper([
       createMovie({ id: 9, name: 'Diary Movie', tmdbId: '999' }),
     ]);
@@ -819,9 +915,44 @@ describe('main application', () => {
       state.sources?.[deleteUrl]?.items['9']?.status === 'acknowledged'
     ));
 
-    // The watchlist source should still have its pre-seeded item
+    // The watchlist source should still have its pre-seeded item (still on watchlist)
     expect(savedState.sources[requestUrl]?.items['1']?.status).toBe('acknowledged');
     // Delete source bootstrapped correctly
     expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
+  });
+
+  it('re-requests a movie removed from watchlist then re-added after diary deletion', async () => {
+    // Regression: a movie previously acknowledged in request-mode must become pending
+    // again if it leaves the watchlist feed and is later re-added, so that Seerr creates
+    // a fresh request (e.g., after it was deleted via diary/delete mode).
+    setRequestMode();
+    loadModules();
+
+    scraperModule.detectListType.mockReturnValue('watchlist');
+    scraperModule.getSyncModeForListType.mockReturnValue('request');
+
+    // Pre-seed: movie already acknowledged (was previously requested)
+    await stateModule.saveState(dataDir, makeV2State(WATCHLIST_URL, 'request', {
+      '1': createSavedItem({ status: 'acknowledged' }),
+    }));
+
+    const { runAllSources } = require('./index');
+
+    // Tick 1: movie ABSENT from feed (removed from watchlist after being watched)
+    scraperModule.fetchMoviesFromUrl.mockResolvedValueOnce([]);
+    await runAllSources();
+
+    // The acknowledged item should have been dropped from state (no longer on feed)
+    let state = await stateModule.loadState(dataDir);
+    expect(state.sources[WATCHLIST_URL].items['1']).toBeUndefined();
+
+    // Tick 2: movie re-added to watchlist (user wants it re-downloaded after diary deletion)
+    scraperModule.fetchMoviesFromUrl.mockResolvedValueOnce([createMovie()]);
+    seerrModule.createMovieRequest.mockResolvedValue('created');
+    await runAllSources();
+
+    state = await stateModule.loadState(dataDir);
+    expect(state.sources[WATCHLIST_URL].items['1'].status).toBe('acknowledged');
+    expect(seerrModule.createMovieRequest).toHaveBeenCalledWith('123');
   });
 });
