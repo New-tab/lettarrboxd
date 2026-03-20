@@ -13,8 +13,8 @@ RUN yarn install --frozen-lockfile
 # Copy source code
 COPY . .
 
-# Build TypeScript
-RUN yarn tsc
+# Build TypeScript and copy static assets
+RUN yarn build
 
 # Production stage
 FROM node:20-alpine AS production
