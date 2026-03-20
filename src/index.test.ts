@@ -957,8 +957,11 @@ describe('main application', () => {
     seerrModule.deleteMedia.mockResolvedValue('deleted');
 
     startScheduledMonitoring();
+    // Wait for hasLeftFeed to be cleared — markAcknowledged resets it to false after deletion.
+    // We can't wait for 'acknowledged' alone because the seeded state is already 'acknowledged'.
     const savedState = await waitForState(state => (
-      state.sources?.[DELETE_URL]?.items['9']?.status === 'acknowledged'
+      state.sources?.[DELETE_URL]?.items['9']?.status === 'acknowledged' &&
+      state.sources?.[DELETE_URL]?.items['9']?.hasLeftFeed === false
     ));
 
     expect(savedState.sources[DELETE_URL].items['9'].status).toBe('acknowledged');
