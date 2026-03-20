@@ -16,7 +16,7 @@ export function createApp(runAllSources: () => Promise<void>): express.Express {
     try {
       const state = await loadState(env.DATA_DIR);
       if (!state) {
-        res.json({ sources: {}, syncing: isSyncing });
+        res.json({ sources: {}, syncing: isSyncing, activeUrls: env.letterboxdUrls });
         return;
       }
 
@@ -35,7 +35,7 @@ export function createApp(runAllSources: () => Promise<void>): express.Express {
         })
       );
 
-      res.json({ sources, syncing: isSyncing });
+      res.json({ sources, syncing: isSyncing, activeUrls: env.letterboxdUrls });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
@@ -136,6 +136,82 @@ export function createApp(runAllSources: () => Promise<void>): express.Express {
 
       await saveState(env.DATA_DIR, updatedState);
       res.json({ message: 'Item requeued', item: updatedItem });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post('/sources/:sourceUrl/requeue-all', async (req, res) => {
+    if (isSyncing) {
+      res.status(409).json({ error: 'Sync already in progress' });
+      return;
+    }
+
+    try {
+      const sourceUrl = req.params.sourceUrl;
+      const state = await loadState(env.DATA_DIR);
+
+      if (!state) {
+        res.status(404).json({ error: 'No state found' });
+        return;
+      }
+
+      const source = state.sources[sourceUrl];
+      if (!source) {
+        res.status(404).json({ error: 'Source not found' });
+        return;
+      }
+
+      if (source.mode !== 'request') {
+        res.status(400).json({ error: 'Requeue All is only supported for request-mode sources' });
+        return;
+      }
+
+      let count = 0;
+      const updatedItems = Object.fromEntries(
+        Object.entries(source.items).map(([id, item]) => {
+          if (item.status === 'acknowledged' || item.status === 'skipped') {
+            count++;
+            return [id, { ...item, status: 'pending' as const, retryCount: 0, lastError: null }];
+          }
+          return [id, item];
+        })
+      );
+
+      await saveState(env.DATA_DIR, {
+        ...state,
+        sources: { ...state.sources, [sourceUrl]: { ...source, items: updatedItems } },
+      });
+
+      res.json({ message: `${count} item${count === 1 ? '' : 's'} requeued`, count });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.delete('/sources/:sourceUrl', async (req, res) => {
+    if (isSyncing) {
+      res.status(409).json({ error: 'Sync already in progress' });
+      return;
+    }
+
+    try {
+      const sourceUrl = req.params.sourceUrl;
+
+      if (env.letterboxdUrls.includes(sourceUrl)) {
+        res.status(400).json({ error: 'Cannot remove an active source — remove it from LETTERBOXD_URLS first' });
+        return;
+      }
+
+      const state = await loadState(env.DATA_DIR);
+      if (!state || !state.sources[sourceUrl]) {
+        res.status(404).json({ error: 'Source not found in state' });
+        return;
+      }
+
+      const { [sourceUrl]: _removed, ...remainingSources } = state.sources;
+      await saveState(env.DATA_DIR, { ...state, sources: remainingSources });
+      res.json({ message: 'Source removed from state' });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }

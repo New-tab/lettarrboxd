@@ -94,7 +94,7 @@
     button:hover:not(:disabled) { background: var(--accent-hover); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    button.requeue-btn {
+    button.requeue-btn, button.requeue-all-btn, button.remove-btn {
       background: var(--surface2);
       border: 1px solid var(--border);
       color: var(--text-muted);
@@ -103,9 +103,27 @@
       font-weight: 500;
     }
 
-    button.requeue-btn:hover:not(:disabled) {
+    button.requeue-btn:hover:not(:disabled), button.requeue-all-btn:hover:not(:disabled) {
       background: var(--border);
       color: var(--text);
+    }
+
+    button.remove-btn:hover:not(:disabled) {
+      background: #7f1d1d;
+      border-color: #7f1d1d;
+      color: #fecaca;
+    }
+
+    .inactive-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: #3f3f46;
+      color: #a1a1aa;
+      flex-shrink: 0;
     }
 
     main {
@@ -303,6 +321,9 @@
       background: var(--surface2);
     }
 
+    .source-card.inactive { opacity: 0.6; }
+    .source-card.inactive .source-url { text-decoration: line-through; }
+
     #no-sources {
       padding: 32px;
       text-align: center;
@@ -427,13 +448,13 @@
   async function refreshSources() {
     try {
       const res = await fetch('/status');
-      const { sources, syncing: isSyncing } = await res.json();
+      const { sources, syncing: isSyncing, activeUrls } = await res.json();
       updateSyncState(isSyncing);
-      renderSources(sources);
+      renderSources(sources, activeUrls || []);
     } catch (e) { /* silently ignore */ }
   }
 
-  function renderSources(sources) {
+  function renderSources(sources, activeUrls) {
     const panel = document.getElementById('sources-panel');
     const entries = Object.entries(sources || {});
 
@@ -441,6 +462,8 @@
       panel.innerHTML = '<div id="no-sources">No sources configured</div>';
       return;
     }
+
+    const activeSet = new Set(activeUrls);
 
     // Preserve open state of existing cards
     const openUrls = new Set(
@@ -450,20 +473,30 @@
 
     panel.innerHTML = entries.map(([url, src]) => {
       const isOpen = openUrls.has(url);
+      const isActive = activeSet.has(url);
       const counts = Object.entries(src.itemCounts || {})
         .map(([s, n]) => `<span class="count-pill">${escapeHtml(s)}: ${n}</span>`)
         .join('');
       const shortUrl = url.replace('https://letterboxd.com', '');
 
-      return `<div class="source-card${isOpen ? ' open' : ''}" data-url="${escapeHtml(url)}" data-mode="${escapeHtml(src.mode)}">
+      const acknowledgedCount = (src.itemCounts?.acknowledged ?? 0) + (src.itemCounts?.skipped ?? 0);
+      const showRequeueAll = isActive && src.mode === 'request' && acknowledgedCount > 0;
+
+      return `<div class="source-card${isOpen ? ' open' : ''}${!isActive ? ' inactive' : ''}" data-url="${escapeHtml(url)}" data-mode="${escapeHtml(src.mode)}">
         <div class="source-header">
           <span class="source-mode-badge mode-${escapeHtml(src.mode)}">${escapeHtml(src.mode)}</span>
+          ${!isActive ? '<span class="inactive-badge">Removed</span>' : ''}
           <span class="source-url" title="${escapeHtml(url)}">${escapeHtml(shortUrl)}</span>
           <span class="source-counts">${counts}</span>
+          ${showRequeueAll ? `<button class="requeue-all-btn" data-url="${escapeHtml(url)}" title="Re-request all acknowledged items">Requeue All</button>` : ''}
           <span class="chevron">▶</span>
         </div>
         <div class="source-body">
           <div class="source-meta">${escapeHtml(url)}</div>
+          ${!isActive ? `<div style="padding:10px 14px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border)">
+            <span style="font-size:12px;color:var(--text-muted);flex:1">This source is no longer in LETTERBOXD_URLS</span>
+            <button class="remove-btn" data-url="${escapeHtml(url)}">Remove from state</button>
+          </div>` : ''}
           <div class="items-list" data-url="${escapeHtml(url)}">
             ${isOpen ? '<div class="items-loading">Loading…</div>' : ''}
           </div>
@@ -479,6 +512,52 @@
         card.classList.toggle('open');
         if (!wasOpen) {
           loadSourceItems(card.dataset.url, card.dataset.mode, card.querySelector('.items-list'));
+        }
+      });
+    });
+
+    // Requeue All buttons (request-mode active sources only)
+    panel.querySelectorAll('.requeue-all-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        btn.disabled = true;
+        try {
+          const sourceUrl = btn.dataset.url;
+          const res = await fetch('/sources/' + encodeURIComponent(sourceUrl) + '/requeue-all', { method: 'POST' });
+          const body = await res.json();
+          if (res.ok) {
+            showToast(body.message);
+            refreshSources();
+          } else {
+            showToast(body.error || 'Requeue All failed');
+            btn.disabled = false;
+          }
+        } catch (e) {
+          showToast('Requeue All failed');
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Remove-from-state buttons (inactive sources only)
+    panel.querySelectorAll('.remove-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        btn.disabled = true;
+        const sourceUrl = btn.dataset.url;
+        try {
+          const res = await fetch('/sources/' + encodeURIComponent(sourceUrl), { method: 'DELETE' });
+          const body = await res.json();
+          if (res.ok) {
+            showToast('Source removed from state');
+            refreshSources();
+          } else {
+            showToast(body.error || 'Remove failed');
+            btn.disabled = false;
+          }
+        } catch (e) {
+          showToast('Remove failed');
+          btn.disabled = false;
         }
       });
     });

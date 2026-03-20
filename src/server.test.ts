@@ -83,6 +83,7 @@ describe('server', () => {
     expect(status).toBe(200);
     expect(body.sources).toEqual({});
     expect(body.syncing).toBe(false);
+    expect(body.activeUrls).toEqual(['https://letterboxd.com/user/watchlist']);
   });
 
   it('GET /status returns source summaries from state file', async () => {
@@ -306,6 +307,96 @@ describe('server', () => {
     const port = await startTestApp();
     const encoded = encodeURIComponent(url);
     const { status } = await httpRequest(port, 'POST', `/sources/${encoded}/items/1/requeue`);
+
+    expect(status).toBe(400);
+  });
+
+  it('POST /sources/:sourceUrl/requeue-all requeues all acknowledged and skipped items', async () => {
+    const url = 'https://letterboxd.com/user/watchlist';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: {
+        [url]: {
+          url,
+          mode: 'request',
+          rssEtag: null,
+          items: {
+            '1': { id: 1, name: 'A', slug: '/film/a/', tmdbId: '1', firstSeenAt: '', lastSeenAt: '', retryCount: 0, status: 'acknowledged', lastError: null },
+            '2': { id: 2, name: 'B', slug: '/film/b/', tmdbId: '2', firstSeenAt: '', lastSeenAt: '', retryCount: 3, status: 'skipped', lastError: 'err' },
+            '3': { id: 3, name: 'C', slug: '/film/c/', tmdbId: '3', firstSeenAt: '', lastSeenAt: '', retryCount: 0, status: 'pending', lastError: null },
+          },
+        },
+      },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status, body } = await httpRequest(port, 'POST', `/sources/${encoded}/requeue-all`);
+
+    expect(status).toBe(200);
+    expect(body.count).toBe(2);
+
+    const savedState = await stateModule.loadState(dataDir);
+    const items = savedState.sources[url].items;
+    expect(items['1'].status).toBe('pending');
+    expect(items['1'].retryCount).toBe(0);
+    expect(items['2'].status).toBe('pending');
+    expect(items['2'].retryCount).toBe(0);
+    expect(items['2'].lastError).toBeNull();
+    expect(items['3'].status).toBe('pending'); // was already pending, unchanged
+  });
+
+  it('POST requeue-all returns 400 for delete-mode sources', async () => {
+    const url = 'https://letterboxd.com/user/films';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: { [url]: { url, mode: 'delete', rssEtag: null, items: {} } },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status } = await httpRequest(port, 'POST', `/sources/${encoded}/requeue-all`);
+
+    expect(status).toBe(400);
+  });
+
+  it('DELETE /sources/:sourceUrl removes a stale source from state', async () => {
+    const activeUrl = 'https://letterboxd.com/user/watchlist';
+    const staleUrl = 'https://letterboxd.com/user/list/old-list/';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: {
+        [activeUrl]: { url: activeUrl, mode: 'request', rssEtag: null, items: {} },
+        [staleUrl]: { url: staleUrl, mode: 'request', rssEtag: null, items: {} },
+      },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(staleUrl);
+    const { status, body } = await httpRequest(port, 'DELETE', `/sources/${encoded}`);
+
+    expect(status).toBe(200);
+    expect(body.message).toContain('removed');
+
+    const savedState = await stateModule.loadState(dataDir);
+    expect(savedState.sources[staleUrl]).toBeUndefined();
+    expect(savedState.sources[activeUrl]).toBeDefined();
+  });
+
+  it('DELETE /sources/:sourceUrl returns 400 for active sources', async () => {
+    const url = 'https://letterboxd.com/user/watchlist';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: { [url]: { url, mode: 'request', rssEtag: null, items: {} } },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status } = await httpRequest(port, 'DELETE', `/sources/${encoded}`);
 
     expect(status).toBe(400);
   });

@@ -552,17 +552,30 @@ export async function runAllSources(): Promise<void> {
       let movies: LetterboxdMovie[];
       let newRssEtag: string | null | undefined;
 
-      if (mode === 'delete') {
-        const rssScraper = new RssScraper(url);
-        const result = await rssScraper.getMovies(sourceState.rssEtag);
-        if (result === null) {
-          logger.debug(`RSS feed for ${url} unchanged (304). Skipping source.`);
-          continue;
+      try {
+        if (mode === 'delete') {
+          const rssScraper = new RssScraper(url);
+          const result = await rssScraper.getMovies(sourceState.rssEtag);
+          if (result === null) {
+            logger.debug(`RSS feed for ${url} unchanged (304). Skipping source.`);
+            continue;
+          }
+          movies = result.movies;
+          newRssEtag = result.etag;
+        } else {
+          movies = await fetchMoviesFromUrl(url);
         }
-        movies = result.movies;
-        newRssEtag = result.etag;
-      } else {
-        movies = await fetchMoviesFromUrl(url);
+      } catch (fetchError) {
+        const errorMessage = formatError(fetchError);
+        logger.error(`Failed to fetch source ${url}: ${errorMessage}. Skipping this source.`);
+        await logEvent({
+          timestamp,
+          sourceUrl: url,
+          mode,
+          action: 'error',
+          message: `Failed to fetch source: ${errorMessage}`,
+        });
+        continue;
       }
 
       const currentMovieMap = buildCurrentMovieMap(movies);
