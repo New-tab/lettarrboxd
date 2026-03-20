@@ -515,7 +515,7 @@
     // For delete-mode: show acknowledged + skipped items with Requeue button
     // For request-mode: show all items (read-only)
     container.innerHTML = entries.map(([id, item]) => {
-      const canRequeue = mode === 'delete' && (item.status === 'acknowledged' || item.status === 'skipped');
+      const canRequeue = item.status === 'acknowledged' || item.status === 'skipped';
       return `<div class="item-row">
         <span class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
         <span class="item-status status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span>

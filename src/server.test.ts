@@ -257,7 +257,7 @@ describe('server', () => {
     expect(savedState.sources[url].items['7'].retryCount).toBe(0);
   });
 
-  it('POST requeue returns 400 for request-mode sources', async () => {
+  it('POST requeue works for request-mode sources (re-requests acknowledged items)', async () => {
     const url = 'https://letterboxd.com/user/watchlist';
     const stateModule = require('./util/state');
     await stateModule.saveState(dataDir, {
@@ -268,7 +268,7 @@ describe('server', () => {
           mode: 'request',
           rssEtag: null,
           items: {
-            '1': { id: 1, name: 'Movie', slug: '/film/movie/', tmdbId: '111', firstSeenAt: '', lastSeenAt: '', retryCount: 0, status: 'acknowledged', lastError: null },
+            '1': { id: 1, name: 'Movie', slug: '/film/movie/', tmdbId: '111', firstSeenAt: '', lastSeenAt: '', retryCount: 2, status: 'acknowledged', lastError: null },
           },
         },
       },
@@ -278,8 +278,12 @@ describe('server', () => {
     const encoded = encodeURIComponent(url);
     const { status, body } = await httpRequest(port, 'POST', `/sources/${encoded}/items/1/requeue`);
 
-    expect(status).toBe(400);
-    expect(body.error).toContain('delete-mode');
+    expect(status).toBe(200);
+    expect(body.item.status).toBe('pending');
+    expect(body.item.retryCount).toBe(0);
+
+    const savedState = await stateModule.loadState(dataDir);
+    expect(savedState.sources[url].items['1'].status).toBe('pending');
   });
 
   it('POST requeue returns 400 for pending items', async () => {

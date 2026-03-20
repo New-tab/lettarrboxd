@@ -111,11 +111,6 @@ export function createApp(runAllSources: () => Promise<void>): express.Express {
         return;
       }
 
-      if (source.mode !== 'delete') {
-        res.status(400).json({ error: 'Requeue is only supported for delete-mode sources' });
-        return;
-      }
-
       const item = source.items[itemId];
       if (!item) {
         res.status(404).json({ error: 'Item not found' });
