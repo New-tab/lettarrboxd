@@ -89,6 +89,7 @@ describe('main application', () => {
       retryCount: number;
       status: 'pending' | 'cleanupPending' | 'acknowledged' | 'skipped';
       lastError: string | null;
+      hasLeftFeed: boolean;
     }> = {}
   ) => ({
     id: 1,
@@ -921,26 +922,40 @@ describe('main application', () => {
     expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
   });
 
-  it('re-deletes a movie re-added to the diary after being previously acknowledged', async () => {
-    // Regression: an acknowledged delete-mode item must reset to pending when the movie
-    // re-appears in the diary RSS feed so it gets deleted again.
+  it('does NOT re-delete acknowledged diary items by default (tombstone behavior)', async () => {
     setDeleteMode();
-
-    // Pre-seed: movie already acknowledged (was previously deleted)
     await stateModule.saveState(dataDir, makeV2State(DELETE_URL, 'delete', {
-      '9': createSavedItem({ id: 9, name: 'Re-Diared Movie', slug: '/film/re-diared/', tmdbId: '999', status: 'acknowledged' }),
+      '9': createSavedItem({ id: 9, name: 'Movie', slug: '/film/movie/', tmdbId: '999', status: 'acknowledged' }),
     }));
-
     loadModules();
     scraperModule.detectListType.mockReturnValue('diary');
     scraperModule.getSyncModeForListType.mockReturnValue('delete');
-    mockRssScraper([createMovie({ id: 9, name: 'Re-Diared Movie', slug: '/film/re-diared/', tmdbId: '999' })]);
+    mockRssScraper([createMovie({ id: 9, name: 'Movie', slug: '/film/movie/', tmdbId: '999' })]);
+
+    const { runAllSources } = require('./index');
+    await runAllSources();
+
+    const state = await stateModule.loadState(dataDir);
+    expect(state.sources[DELETE_URL].items['9'].status).toBe('acknowledged');
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
+  });
+
+  it('re-deletes acknowledged diary items when DIARY_REDELETE=true and hasLeftFeed=true', async () => {
+    process.env.DIARY_REDELETE = 'true';
+    setDeleteMode();
+    // hasLeftFeed=true: item previously left the feed, now it's back
+    await stateModule.saveState(dataDir, makeV2State(DELETE_URL, 'delete', {
+      '9': createSavedItem({ id: 9, name: 'Movie', slug: '/film/movie/', tmdbId: '999', status: 'acknowledged', hasLeftFeed: true }),
+    }));
+    loadModules();
+    scraperModule.detectListType.mockReturnValue('diary');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    mockRssScraper([createMovie({ id: 9, name: 'Movie', slug: '/film/movie/', tmdbId: '999' })]);
     mountModule.mountSentinelExists.mockResolvedValue(true);
     seerrModule.getMediaIdByTmdbId.mockResolvedValue(42);
     seerrModule.deleteMediaFile.mockResolvedValue('deleted');
     seerrModule.deleteMedia.mockResolvedValue('deleted');
 
-    // Movie re-appears in diary RSS — should reset to pending and then be deleted
     startScheduledMonitoring();
     const savedState = await waitForState(state => (
       state.sources?.[DELETE_URL]?.items['9']?.status === 'acknowledged'
@@ -948,6 +963,46 @@ describe('main application', () => {
 
     expect(savedState.sources[DELETE_URL].items['9'].status).toBe('acknowledged');
     expect(seerrModule.deleteMediaFile).toHaveBeenCalled();
+  });
+
+  it('does NOT re-delete when DIARY_REDELETE=true but hasLeftFeed is false (item never left feed)', async () => {
+    process.env.DIARY_REDELETE = 'true';
+    setDeleteMode();
+    // hasLeftFeed not set — item has been in the top-50 continuously since last ack
+    await stateModule.saveState(dataDir, makeV2State(DELETE_URL, 'delete', {
+      '9': createSavedItem({ id: 9, name: 'Movie', slug: '/film/movie/', tmdbId: '999', status: 'acknowledged' }),
+    }));
+    loadModules();
+    scraperModule.detectListType.mockReturnValue('diary');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    mockRssScraper([createMovie({ id: 9, name: 'Movie', slug: '/film/movie/', tmdbId: '999' })]);
+
+    const { runAllSources } = require('./index');
+    await runAllSources();
+
+    const state = await stateModule.loadState(dataDir);
+    expect(state.sources[DELETE_URL].items['9'].status).toBe('acknowledged');
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
+  });
+
+  it('sets hasLeftFeed=true when an acknowledged item disappears from the feed', async () => {
+    setDeleteMode();
+    await stateModule.saveState(dataDir, makeV2State(DELETE_URL, 'delete', {
+      '9': createSavedItem({ id: 9, name: 'Movie', slug: '/film/movie/', tmdbId: '999', status: 'acknowledged' }),
+    }));
+    loadModules();
+    scraperModule.detectListType.mockReturnValue('diary');
+    scraperModule.getSyncModeForListType.mockReturnValue('delete');
+    // Feed is empty — item 9 is absent
+    mockRssScraper([]);
+
+    const { runAllSources } = require('./index');
+    await runAllSources();
+
+    const state = await stateModule.loadState(dataDir);
+    expect(state.sources[DELETE_URL].items['9'].hasLeftFeed).toBe(true);
+    expect(state.sources[DELETE_URL].items['9'].status).toBe('acknowledged');
+    expect(seerrModule.deleteMediaFile).not.toHaveBeenCalled();
   });
 
   it('re-requests a movie removed from watchlist then re-added after diary deletion', async () => {

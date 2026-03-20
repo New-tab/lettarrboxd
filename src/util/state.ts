@@ -23,6 +23,7 @@ export interface SyncStateItem {
   retryCount: number;
   status: SyncStateItemStatus;
   lastError: string | null;
+  hasLeftFeed?: boolean; // delete-mode only: true once the item has been absent from the RSS feed at least once since last acknowledgment
 }
 
 export interface SourceState {
@@ -135,6 +136,7 @@ export function markAcknowledged(item: SyncStateItem): SyncStateItem {
     ...item,
     status: 'acknowledged',
     lastError: null,
+    hasLeftFeed: false,
   };
 }
 

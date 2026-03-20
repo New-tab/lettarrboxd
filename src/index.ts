@@ -114,7 +114,8 @@ function upsertStateWithCurrentMovies(
   state: SourceState,
   movies: LetterboxdMovie[],
   mode: SyncMode,
-  timestamp: string
+  timestamp: string,
+  diaryRedelete = false
 ): SourceState {
   const currentMovieKeys = new Set<string>();
 
@@ -130,16 +131,19 @@ function upsertStateWithCurrentMovies(
     }
 
     if (item.status === 'acknowledged' || item.status === 'skipped') {
-      // Delete-mode: retain as a tombstone only when the item is absent from the current
-      // feed (prevents re-deletion on every tick). If the movie re-appears in the diary
-      // RSS, the user has re-logged it and wants it deleted again — reset to pending.
-      // Request-mode: only retain while the movie is still in the current feed. If it
-      // leaves the list and is re-added later (e.g., deleted from Radarr via diary and
-      // then re-added to watchlist), it should start fresh as pending so it gets
-      // re-requested.
-      if (mode === 'delete' && currentMovieKeys.has(key)) {
-        nextItems[key] = { ...item, status: 'pending', retryCount: 0, lastError: null };
-      } else if (mode === 'delete' || currentMovieKeys.has(key)) {
+      if (mode === 'delete') {
+        if (!currentMovieKeys.has(key)) {
+          // Item absent from feed — record that it genuinely left at least once
+          nextItems[key] = { ...item, hasLeftFeed: true };
+        } else if (diaryRedelete && item.hasLeftFeed) {
+          // Back in feed after a confirmed absence — user re-logged it, re-delete
+          nextItems[key] = { ...item, status: 'pending', retryCount: 0, lastError: null };
+        } else {
+          // Continuously in top-50 or hasn't left since last acknowledgment — keep tombstone
+          nextItems[key] = { ...item };
+        }
+      } else if (currentMovieKeys.has(key)) {
+        // Request-mode: only retain while still in feed
         nextItems[key] = { ...item };
       }
       continue;
@@ -583,7 +587,7 @@ export async function runAllSources(): Promise<void> {
 
       const currentMovieMap = buildCurrentMovieMap(movies);
 
-      sourceState = upsertStateWithCurrentMovies(sourceState, movies, mode, timestamp);
+      sourceState = upsertStateWithCurrentMovies(sourceState, movies, mode, timestamp, env.DIARY_REDELETE);
 
       if (newRssEtag !== undefined) {
         sourceState = { ...sourceState, rssEtag: newRssEtag };

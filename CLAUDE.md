@@ -29,6 +29,7 @@ Seerrboxd monitors one or more Letterboxd sources on a schedule and syncs them i
 - `DATA_DIR` — default `/data`
 - `CHECK_INTERVAL_MINUTES` — default `10`, minimum `10`
 - `DRY_RUN` — default `false`; skips all mutations (except delete-mode first-run bootstrap)
+- `DIARY_REDELETE` — default `false`; when `true`, re-deletes a diary item if it re-appears in the RSS feed after having been absent at least once since its last acknowledgment. Tracked via `hasLeftFeed` flag on each state item — safe against the 50-item RSS window limitation.
 - `MEDIA_MOUNT_SENTINEL` — default `/mnt/media/.MOUNT_OK`; gates destructive deletes
 - `FLARESOLVERR_URL`, `BYPARR_URL` — Cloudflare fallback for request-mode scraping
 - `LETTERBOXD_TAKE_AMOUNT` + `LETTERBOXD_TAKE_STRATEGY` — must be set together; limits request-mode sources
