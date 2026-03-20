@@ -16,20 +16,19 @@ COPY . .
 # Build TypeScript and copy static assets
 RUN yarn build
 
+# Prune to production-only deps while still on native platform (avoids QEMU SIGILL)
+RUN yarn install --frozen-lockfile --production && yarn cache clean
+
 # Production stage
 FROM node:20-alpine AS production
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package.json yarn.lock ./
-
-# Install only production dependencies
-RUN yarn install --frozen-lockfile --production && yarn cache clean
-
-# Copy built JavaScript from builder stage
+# Copy production node_modules and built output — no yarn install needed here
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY package.json ./
 
 # Create data directory
 RUN mkdir -p /data
