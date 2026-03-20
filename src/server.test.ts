@@ -401,6 +401,57 @@ describe('server', () => {
     expect(status).toBe(400);
   });
 
+  it('POST /sources/:sourceUrl/items/:itemId/skip sets pending item to skipped', async () => {
+    const url = 'https://letterboxd.com/user/watchlist';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: {
+        [url]: {
+          url,
+          mode: 'request',
+          rssEtag: null,
+          items: {
+            '5': { id: 5, name: 'Bad Movie', slug: '/film/bad-movie/', tmdbId: '555', firstSeenAt: '', lastSeenAt: '', retryCount: 3, status: 'pending', lastError: 'Not found' },
+          },
+        },
+      },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status, body } = await httpRequest(port, 'POST', `/sources/${encoded}/items/5/skip`);
+
+    expect(status).toBe(200);
+    expect(body.item.status).toBe('skipped');
+
+    const savedState = await stateModule.loadState(dataDir);
+    expect(savedState.sources[url].items['5'].status).toBe('skipped');
+  });
+
+  it('POST skip returns 400 for non-pending items', async () => {
+    const url = 'https://letterboxd.com/user/watchlist';
+    const stateModule = require('./util/state');
+    await stateModule.saveState(dataDir, {
+      version: 2,
+      sources: {
+        [url]: {
+          url,
+          mode: 'request',
+          rssEtag: null,
+          items: {
+            '1': { id: 1, name: 'Movie', slug: '/film/movie/', tmdbId: '111', firstSeenAt: '', lastSeenAt: '', retryCount: 0, status: 'acknowledged', lastError: null },
+          },
+        },
+      },
+    });
+
+    const port = await startTestApp();
+    const encoded = encodeURIComponent(url);
+    const { status } = await httpRequest(port, 'POST', `/sources/${encoded}/items/1/skip`);
+    expect(status).toBe(400);
+  });
+
   it('POST requeue returns 409 when sync is in progress', async () => {
     let resolveSync!: () => void;
     const runAllSources = jest.fn().mockImplementation(

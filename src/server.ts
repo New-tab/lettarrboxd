@@ -141,6 +141,54 @@ export function createApp(runAllSources: () => Promise<void>): express.Express {
     }
   });
 
+  app.post('/sources/:sourceUrl/items/:itemId/skip', async (req, res) => {
+    if (isSyncing) {
+      res.status(409).json({ error: 'Sync already in progress' });
+      return;
+    }
+
+    try {
+      const sourceUrl = req.params.sourceUrl;
+      const { itemId } = req.params;
+      const state = await loadState(env.DATA_DIR);
+
+      if (!state) {
+        res.status(404).json({ error: 'No state found' });
+        return;
+      }
+
+      const source = state.sources[sourceUrl];
+      if (!source) {
+        res.status(404).json({ error: 'Source not found' });
+        return;
+      }
+
+      const item = source.items[itemId];
+      if (!item) {
+        res.status(404).json({ error: 'Item not found' });
+        return;
+      }
+
+      if (item.status !== 'pending') {
+        res.status(400).json({ error: `Item must be pending to skip, got: ${item.status}` });
+        return;
+      }
+
+      const updatedItem = { ...item, status: 'skipped' as const };
+      await saveState(env.DATA_DIR, {
+        ...state,
+        sources: {
+          ...state.sources,
+          [sourceUrl]: { ...source, items: { ...source.items, [itemId]: updatedItem } },
+        },
+      });
+
+      res.json({ message: 'Item skipped', item: updatedItem });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
   app.post('/sources/:sourceUrl/requeue-all', async (req, res) => {
     if (isSyncing) {
       res.status(409).json({ error: 'Sync already in progress' });

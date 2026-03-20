@@ -94,7 +94,7 @@
     button:hover:not(:disabled) { background: var(--accent-hover); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    button.requeue-btn, button.requeue-all-btn, button.remove-btn {
+    button.requeue-btn, button.requeue-all-btn, button.remove-btn, button.skip-btn {
       background: var(--surface2);
       border: 1px solid var(--border);
       color: var(--text-muted);
@@ -107,6 +107,9 @@
       background: var(--border);
       color: var(--text);
     }
+
+    button.skip-btn { border-color: #4a3800; color: #ca8a04; }
+    button.skip-btn:hover:not(:disabled) { background: #4a3800; color: #fbbf24; }
 
     button.remove-btn:hover:not(:disabled) {
       background: #7f1d1d;
@@ -121,21 +124,21 @@
       letter-spacing: 0.5px;
       padding: 2px 7px;
       border-radius: 4px;
-      background: #3f3f46;
-      color: #a1a1aa;
+      background: #4a3000;
+      color: #fbbf24;
       flex-shrink: 0;
     }
 
     main {
-      max-width: 1100px;
+      max-width: 1500px;
       margin: 0 auto;
       padding: 24px;
       display: grid;
-      grid-template-columns: 1fr 340px;
+      grid-template-columns: 1fr 480px;
       gap: 24px;
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 900px) {
       main { grid-template-columns: 1fr; }
     }
 
@@ -218,6 +221,7 @@
       padding: 12px 14px;
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 8px;
       cursor: pointer;
       user-select: none;
@@ -260,7 +264,26 @@
       border-radius: 999px;
       background: var(--surface2);
       border: 1px solid var(--border);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
     }
+
+    .count-pill:hover { border-color: var(--accent); color: var(--text); }
+    .count-pill.active { border-color: var(--accent); color: var(--accent); background: #1e1f4a; }
+
+    .search-box {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 12px;
+      padding: 5px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .search-box:focus { border-color: var(--accent); }
 
     .chevron {
       flex-shrink: 0;
@@ -278,7 +301,7 @@
 
     .item-row {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
       padding: 8px 14px;
       border-bottom: 1px solid var(--border);
@@ -289,9 +312,9 @@
 
     .item-name {
       flex: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      word-break: break-word;
+      overflow-wrap: break-word;
+      line-height: 1.4;
     }
 
     .item-status {
@@ -300,6 +323,7 @@
       text-transform: uppercase;
       color: var(--text-muted);
       flex-shrink: 0;
+      margin-top: 2px;
     }
 
     .status-acknowledged { color: var(--green); }
@@ -321,8 +345,16 @@
       background: var(--surface2);
     }
 
-    .source-card.inactive { opacity: 0.6; }
-    .source-card.inactive .source-url { text-decoration: line-through; }
+    .source-card.inactive {
+      border-color: #5a3c00;
+      background: #151210;
+    }
+    .source-card.inactive .source-header { background: #1a1510; }
+    .source-card.inactive .source-header:hover { background: #201b12; }
+    .source-card.inactive .source-url {
+      text-decoration: line-through;
+      opacity: 0.5;
+    }
 
     #no-sources {
       padding: 32px;
@@ -331,6 +363,37 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
+    }
+
+    #skipped-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .skipped-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .skipped-row:last-child { border-bottom: none; }
+
+    .skipped-name {
+      flex: 1;
+      font-weight: 500;
+      word-break: break-word;
+      line-height: 1.4;
+    }
+
+    .skipped-source {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
     }
 
     .toast {
@@ -371,6 +434,10 @@
   <section>
     <h2>Sources</h2>
     <div id="sources-panel"></div>
+    <h2 style="margin-top:4px">Skipped</h2>
+    <div id="skipped-panel">
+      <div id="skipped-empty" style="padding:24px;text-align:center;color:var(--text-muted);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)">No skipped items</div>
+    </div>
   </section>
 </main>
 
@@ -378,6 +445,8 @@
   // ── State ──────────────────────────────────────────────────────────────────
   let syncing = false;
   let pollTimer = null;
+  const activeFilters = {}; // url → Set<status>
+  const searchQueries = {}; // url → string
 
   // ── Utils ──────────────────────────────────────────────────────────────────
   function relativeTime(iso) {
@@ -444,6 +513,19 @@
     }).join('');
   }
 
+  // ── Filter helpers ─────────────────────────────────────────────────────────
+  function applyFilters(url) {
+    const card = document.querySelector(`.source-card[data-url="${CSS.escape(url)}"]`);
+    if (!card) return;
+    const filters = activeFilters[url] || new Set();
+    const query = (searchQueries[url] || '').toLowerCase().trim();
+    card.querySelectorAll('.item-row').forEach(row => {
+      const statusOk = filters.size === 0 || filters.has(row.dataset.status);
+      const queryOk = !query || (row.dataset.name || '').toLowerCase().includes(query);
+      row.style.display = statusOk && queryOk ? '' : 'none';
+    });
+  }
+
   // ── Sources Panel ──────────────────────────────────────────────────────────
   async function refreshSources() {
     try {
@@ -475,7 +557,7 @@
       const isOpen = openUrls.has(url);
       const isActive = activeSet.has(url);
       const counts = Object.entries(src.itemCounts || {})
-        .map(([s, n]) => `<span class="count-pill">${escapeHtml(s)}: ${n}</span>`)
+        .map(([s, n]) => `<span class="count-pill" data-url="${escapeHtml(url)}" data-status="${escapeHtml(s)}">${escapeHtml(s)}: ${n}</span>`)
         .join('');
       const shortUrl = url.replace('https://letterboxd.com', '');
 
@@ -488,21 +570,49 @@
           ${!isActive ? '<span class="inactive-badge">Removed</span>' : ''}
           <span class="source-url" title="${escapeHtml(url)}">${escapeHtml(shortUrl)}</span>
           <span class="source-counts">${counts}</span>
-          ${showRequeueAll ? `<button class="requeue-all-btn" data-url="${escapeHtml(url)}" title="Re-request all acknowledged items">Requeue All</button>` : ''}
           <span class="chevron">▶</span>
         </div>
         <div class="source-body">
           <div class="source-meta">${escapeHtml(url)}</div>
-          ${!isActive ? `<div style="padding:10px 14px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border)">
-            <span style="font-size:12px;color:var(--text-muted);flex:1">This source is no longer in LETTERBOXD_URLS</span>
-            <button class="remove-btn" data-url="${escapeHtml(url)}">Remove from state</button>
+          ${!isActive ? `<div style="padding:10px 14px;display:flex;gap:8px;align-items:flex-start;border-bottom:1px solid #5a3c00;background:#1a1208">
+            <span style="font-size:12px;color:#fbbf24;flex:1;line-height:1.6">This source is no longer in LETTERBOXD_URLS</span>
+            <button class="remove-btn" data-url="${escapeHtml(url)}" style="flex-shrink:0">Remove from state</button>
           </div>` : ''}
+          ${showRequeueAll ? `<div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:flex-end">
+            <button class="requeue-all-btn" data-url="${escapeHtml(url)}">Requeue All Acknowledged</button>
+          </div>` : ''}
+          <div style="padding:8px 14px;border-bottom:1px solid var(--border)">
+            <input class="search-box" type="search" data-url="${escapeHtml(url)}" placeholder="Search items…" />
+          </div>
           <div class="items-list" data-url="${escapeHtml(url)}">
             ${isOpen ? '<div class="items-loading">Loading…</div>' : ''}
           </div>
         </div>
       </div>`;
     }).join('');
+
+    // Count pill filter listeners
+    panel.querySelectorAll('.count-pill[data-status]').forEach(pill => {
+      pill.addEventListener('click', e => {
+        e.stopPropagation();
+        const url = pill.dataset.url;
+        const status = pill.dataset.status;
+        if (!activeFilters[url]) activeFilters[url] = new Set();
+        const filters = activeFilters[url];
+        if (filters.has(status)) { filters.delete(status); pill.classList.remove('active'); }
+        else { filters.add(status); pill.classList.add('active'); }
+        applyFilters(url);
+      });
+    });
+
+    // Search input listeners
+    panel.querySelectorAll('.search-box').forEach(input => {
+      input.value = searchQueries[input.dataset.url] || '';
+      input.addEventListener('input', () => {
+        searchQueries[input.dataset.url] = input.value;
+        applyFilters(input.dataset.url);
+      });
+    });
 
     // Re-attach toggle listeners
     panel.querySelectorAll('.source-header').forEach(header => {
@@ -591,18 +701,53 @@
       return;
     }
 
-    // For delete-mode: show acknowledged + skipped items with Requeue button
-    // For request-mode: show all items (read-only)
+    const card = container.closest('.source-card');
+    const isActive = card && !card.classList.contains('inactive');
+
     container.innerHTML = entries.map(([id, item]) => {
-      const canRequeue = item.status === 'acknowledged' || item.status === 'skipped';
-      return `<div class="item-row">
+      const canRequeue = (item.status === 'acknowledged' || item.status === 'skipped') && isActive;
+      const canSkip = item.status === 'pending' && isActive;
+      return `<div class="item-row" data-status="${escapeHtml(item.status)}" data-name="${escapeHtml(item.name)}">
         <span class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
         <span class="item-status status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span>
         ${canRequeue
           ? `<button class="requeue-btn" data-url="${escapeHtml(url)}" data-id="${escapeHtml(id)}">Requeue</button>`
           : ''}
+        ${canSkip
+          ? `<button class="skip-btn" data-url="${escapeHtml(url)}" data-id="${escapeHtml(id)}">Skip</button>`
+          : ''}
       </div>`;
     }).join('');
+
+    // Skip buttons
+    container.querySelectorAll('.skip-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const sourceUrl = btn.dataset.url;
+          const itemId = btn.dataset.id;
+          const res = await fetch(
+            '/sources/' + encodeURIComponent(sourceUrl) + '/items/' + itemId + '/skip',
+            { method: 'POST' }
+          );
+          const body = await res.json();
+          if (res.ok) {
+            showToast('Item skipped');
+            const card = btn.closest('.source-card');
+            if (card) loadSourceItems(card.dataset.url, card.dataset.mode, card.querySelector('.items-list'));
+          } else {
+            showToast(body.error || 'Skip failed');
+            btn.disabled = false;
+          }
+        } catch (e) {
+          showToast('Skip failed');
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Apply any active filters/search to freshly rendered rows
+    applyFilters(url);
 
     // Requeue buttons
     container.querySelectorAll('.requeue-btn').forEach(btn => {
@@ -635,6 +780,80 @@
     });
   }
 
+  // ── Skipped Panel ──────────────────────────────────────────────────────────
+  async function refreshSkipped() {
+    try {
+      const statusRes = await fetch('/status');
+      const { sources, activeUrls } = await statusRes.json();
+      const activeSet = new Set(activeUrls || []);
+
+      const allSkipped = [];
+      await Promise.all(
+        Object.keys(sources || {}).map(async url => {
+          try {
+            const res = await fetch('/sources/' + encodeURIComponent(url) + '/items');
+            if (!res.ok) return;
+            const { items } = await res.json();
+            for (const [id, item] of Object.entries(items || {})) {
+              if (item.status === 'skipped') {
+                allSkipped.push({ url, id, item, isActive: activeSet.has(url) });
+              }
+            }
+          } catch { /* ignore per-source failure */ }
+        })
+      );
+
+      allSkipped.sort((a, b) => a.item.name.localeCompare(b.item.name));
+      renderSkipped(allSkipped);
+    } catch { /* ignore */ }
+  }
+
+  function renderSkipped(entries) {
+    const panel = document.getElementById('skipped-panel');
+    if (entries.length === 0) {
+      panel.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted)">No skipped items</div>';
+      return;
+    }
+
+    panel.innerHTML = entries.map(({ url, id, item, isActive }) => {
+      const shortUrl = url.replace('https://letterboxd.com', '');
+      return `<div class="skipped-row">
+        <div style="flex:1;min-width:0">
+          <div class="skipped-name">${escapeHtml(item.name)}</div>
+          <div class="skipped-source">${escapeHtml(shortUrl)}</div>
+        </div>
+        ${isActive
+          ? `<button class="requeue-btn" data-url="${escapeHtml(url)}" data-id="${escapeHtml(id)}" style="margin-top:2px">Requeue</button>`
+          : ''}
+      </div>`;
+    }).join('');
+
+    // Requeue buttons in skipped panel
+    panel.querySelectorAll('.requeue-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const res = await fetch(
+            '/sources/' + encodeURIComponent(btn.dataset.url) + '/items/' + btn.dataset.id + '/requeue',
+            { method: 'POST' }
+          );
+          const body = await res.json();
+          if (res.ok) {
+            showToast('Item requeued for next sync');
+            refreshSkipped();
+            refreshSources();
+          } else {
+            showToast(body.error || 'Requeue failed');
+            btn.disabled = false;
+          }
+        } catch {
+          showToast('Requeue failed');
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
   // ── Sync State ─────────────────────────────────────────────────────────────
   function updateSyncState(isSyncing) {
     syncing = isSyncing;
@@ -652,7 +871,7 @@
   function schedulePoll() {
     clearTimeout(pollTimer);
     pollTimer = setTimeout(async () => {
-      await Promise.all([refreshEvents(), refreshSources()]);
+      await Promise.all([refreshEvents(), refreshSources(), refreshSkipped()]);
     }, syncing ? 5000 : 30000);
   }
 
@@ -668,6 +887,7 @@
         setTimeout(() => {
           refreshEvents();
           refreshSources();
+          refreshSkipped();
         }, 500);
       } else if (res.status === 409) {
         showToast('Sync already in progress');
@@ -683,7 +903,7 @@
   });
 
   // ── Init ───────────────────────────────────────────────────────────────────
-  Promise.all([refreshEvents(), refreshSources()]);
+  Promise.all([refreshEvents(), refreshSources(), refreshSkipped()]);
 </script>
 
 </body>
